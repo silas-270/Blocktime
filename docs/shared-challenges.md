@@ -543,8 +543,8 @@ adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es
 ```
 
 `advance` moves the bot one step by the room's type (500 km, the next unvisited member, one more
-day, or a third of the route). `present` drives one presentation on the first room the fake holds:
-`team` fills the pool and claims, `won` only joins so the pilot's own arrival wins, `placed` joins
+day, or a third of the route). `present` drives one presentation on the newest room that has no
+outcome yet and whose type fits the mode (a pool, a race, or a streak): `team` fills the pool and claims, `won` only joins so the pilot's own arrival wins, `placed` joins
 and claims the finish, `broken` joins and reports a dead streak. The bot's claims go through
 `putSnapshot` with the caller identity switched to the bot for that one call, so the fake resolves
 the placements itself.

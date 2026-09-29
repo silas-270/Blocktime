@@ -37,9 +37,9 @@ import java.time.LocalDate
  * leg (a third of the route) for a race, which the bot claims as completed once it reaches the
  * end. `break` and `win` are the two outcomes a merge can only receive from someone else.
  *
- * `present` drives one presentation (docs/shared-challenges.md "Presentation") on the first room
- * the fake holds, so the four shared beats can be checked one after the other. It takes a second
- * extra, `mode`, and the room has to be of the right type for it:
+ * `present` drives one presentation (docs/shared-challenges.md "Presentation") on the newest room
+ * that has no outcome yet and whose type fits the mode, so the four shared beats can be checked one
+ * after the other. It takes a second extra, `mode`:
  *
  * ```
  * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode team
@@ -83,9 +83,15 @@ class DebugRoomReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (op == "present") {
-                    // One presentation on one room: the first the fake holds.
-                    present(fake, codes.first(), mode)
-                    Log.i(TAG, "op=present mode=$mode applied to ${codes.first()}; now bring the app to the foreground or open Challenges to sync")
+                    // One presentation on one room: the newest still open one the mode fits, so
+                    // the beats can run one after the other while earlier rooms stay in the fake.
+                    val code = presentTarget(fake, codes, mode)
+                    if (code == null) {
+                        Log.w(TAG, "No open room fits mode=$mode; share a fresh challenge of the right type first")
+                    } else {
+                        present(fake, code, mode)
+                        Log.i(TAG, "op=present mode=$mode applied to $code; now bring the app to the foreground or open Challenges to sync")
+                    }
                 } else {
                     for (code in codes) {
                         when (op) {
@@ -183,6 +189,24 @@ class DebugRoomReceiver : BroadcastReceiver() {
         )
         claimCompleted(fake, code, finished)
         Log.i(TAG, "$code: the bot won the race")
+    }
+
+    /**
+     * The room `present` acts on: the newest one without an outcome whose type the mode can
+     * present (a pool for `team`, a race for `won` and `placed`, a streak for `broken`). The
+     * fake keeps rooms in creation order, so the last match is the newest.
+     */
+    private fun presentTarget(fake: FakeRoomApi, codes: List<String>, mode: String?): String? {
+        val fits: (ChallengeType) -> Boolean = when (mode) {
+            "team" -> { type -> type != ChallengeType.ROUTE }
+            "won", "placed" -> { type -> type == ChallengeType.ROUTE }
+            "broken" -> { type -> type == ChallengeType.STREAK }
+            else -> { _ -> true }
+        }
+        return codes.lastOrNull { code ->
+            val room = fake.room(code)
+            room != null && room.outcome == null && fits(room.definition.type)
+        }
     }
 
     /**
