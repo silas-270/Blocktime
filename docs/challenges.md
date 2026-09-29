@@ -43,7 +43,7 @@ curated catalog rather than a limit the code enforces.
 Curated challenges are templates in `CuratedChallengeCatalog`: name, description, icon, type and
 definition, but no instance state. `startCuratedChallenge` turns one into a row, assigning an id,
 a position pointer where relevant, and zeroed progress. The catalog holds ten Route templates
-(three of them predefined itineraries), eight sets, three distances (7,920, 24,901 and 50,000
+(three of them predefined itineraries), eight sets, three distances (7,918, 24,901 and 50,000
 miles: the Earth's diameter and circumference, and a frequent-flyer status tier) and two streaks.
 
 Custom challenges come from `startCustomRouteChallenge`, `startCustomDistanceChallenge` and

@@ -156,4 +156,14 @@ class ChallengeTextTest {
         assertNull(challengeRouteText(distance(270.0, shared = false)))
         assertNull(challengeRouteText(streak(shared = false)))
     }
+
+    @Test
+    fun `percentages round down the same way on every screen`() {
+        assertEquals("39%", progressPercentText(397f / 1000f))
+        assertEquals("29%", progressPercentText(0.29f))
+        assertEquals("99%", progressPercentText(0.999f))
+        assertEquals("100%", progressPercentText(1f))
+        assertEquals("0%", progressPercentText(0f))
+        assertEquals("100%", progressPercentText(1.2f))
+    }
 }

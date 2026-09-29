@@ -66,6 +66,7 @@ import com.silas270.blocktime.data.model.raceRivals
 import com.silas270.blocktime.data.model.progressSegments
 import com.silas270.blocktime.data.model.isShared
 import com.silas270.blocktime.ui.screens.challenges.challengeProgressText
+import com.silas270.blocktime.ui.screens.challenges.progressPercentText
 import com.silas270.blocktime.data.repository.ChallengeOutcome
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
@@ -89,7 +90,6 @@ import com.silas270.blocktime.ui.theme.Midnight
 import com.silas270.blocktime.ui.theme.OffWhite
 import com.silas270.blocktime.ui.theme.Spacing
 import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 import kotlin.random.Random
 
 private const val AdvanceDurationMs = 1400
@@ -311,7 +311,7 @@ private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, c
         Spacer(modifier = Modifier.height(8.dp))
 
         // Distance and route in percent, set and streak in counts, like every other screen.
-        val percent = if (isCompleted) "100%" else "${(newProgress * 100).roundToInt()}%"
+        val percent = if (isCompleted) "100%" else progressPercentText(newProgress)
         val value = when (outcome.type) {
             ChallengeType.DISTANCE, ChallengeType.ROUTE -> percent
             else -> challenge?.let(::challengeProgressText) ?: percent

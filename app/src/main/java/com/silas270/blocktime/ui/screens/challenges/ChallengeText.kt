@@ -9,11 +9,20 @@ import com.silas270.blocktime.data.model.teamDistanceKm
 import com.silas270.blocktime.data.model.teamStreakDays
 import com.silas270.blocktime.data.model.teamVisitedMembers
 import com.silas270.blocktime.data.model.withSetDefinitionResolved
+import kotlin.math.floor
 
 /**
  * The progress texts of the info modal, the slots, the Hub card and the outcome screen, kept free
  * of Compose so they can be unit tested. One rule for all of them, see [challengeProgressText].
  */
+
+/**
+ * A progress fraction as the percentage every screen prints: rounded down, so 397/1,000 reads
+ * "39%" everywhere and a challenge one mile short never reads "100%". The small tolerance keeps
+ * float noise (0.29f * 100 = 28.99…) from dropping a whole point.
+ */
+internal fun progressPercentText(fraction: Float): String =
+    "${floor(fraction * 100f + 1e-3f).toInt().coerceIn(0, 100)}%"
 
 /**
  * The pilot's progress in the one form its type is always written in, on every screen: distance
@@ -26,7 +35,7 @@ internal fun challengeProgressText(challenge: Challenge): String {
     val pooled = isPooled(challenge)
     return when (challenge.type) {
         ChallengeType.ROUTE, ChallengeType.DISTANCE ->
-            "${(challenge.displayProgressFraction() * 100).toInt()}%"
+            progressPercentText(challenge.displayProgressFraction())
         ChallengeType.SET_COMPLETION -> {
             // Read through the current definition, as the team bar is (situation P14), so a
             // member a definition dropped counts in neither the union nor the pilot's own share.
@@ -51,7 +60,7 @@ internal fun challengeRingLabel(challenge: Challenge): String {
     val pooled = isPooled(challenge)
     return when (challenge.type) {
         ChallengeType.ROUTE, ChallengeType.DISTANCE ->
-            "${(challenge.displayProgressFraction() * 100).toInt()}%"
+            progressPercentText(challenge.displayProgressFraction())
         ChallengeType.SET_COMPLETION -> {
             if (pooled) {
                 "${challenge.teamVisitedMembers().size}/${challenge.withSetDefinitionResolved().setTotalMembers}"

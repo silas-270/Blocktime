@@ -177,7 +177,7 @@ private fun FilledSlot(
         // Percent for distance and route, counts for set and streak (challengeRingLabel); the
         // number follows the ring's own animation only for the percentage types.
         challenge.type == ChallengeType.DISTANCE || challenge.type == ChallengeType.ROUTE ->
-            "${(animatedProgress * 100).toInt()}%"
+            progressPercentText(animatedProgress)
         else -> challengeRingLabel(challenge)
     }
 

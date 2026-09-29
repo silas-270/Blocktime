@@ -187,7 +187,7 @@ object CuratedChallengeCatalog {
         CuratedChallengeTemplate(
             catalogId = "distance_planetary_core",
             name = "Planetary Core",
-            description = "Fly a cumulative 7,920 miles under this challenge (the Earth's diameter).",
+            description = "Fly a cumulative 7,918 miles under this challenge (the Earth's diameter).",
             type = ChallengeType.DISTANCE,
             iconName = "public",
             targetDistanceKm = 12_742.0
