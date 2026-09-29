@@ -421,7 +421,7 @@ default that was chosen for the design rather than decided by the product.
 | P8 | Completed, unpresented | `Failed` | The server wins: status becomes failed, shatter instead of celebration (rule 3). |
 | P9 | Presented | anything | Cannot happen: presented rows are not synced. The log entry freezes at presentation. |
 | P10 | Active | A participant joined or left | Cache refreshed; the crew list changes. Pool: a leaver's contributions stay. Streak and race: a leaver no longer counts, and a leaver's dead streak does not break the group. |
-| P11 | Active | Not found (deleted by the server's retention) | `roomGone` in the cache; the row keeps working locally, drops out of the syncable list, and the modal says "Room closed · continuing solo"; no second share. |
+| P11 | Active | Not found (deleted by the server's retention) | `roomGone` in the cache; the row keeps working locally, drops out of the syncable list, and the modal says "Room closed · continuing solo" under a code that has lost its copy and share buttons (nobody can join any more); no second share. |
 | P12 | Any | Unauthorised | As P11, plus a log line. Only possible if another pilot bound the same code first. |
 | P13 | Any | Unreachable | Nothing local; the reachability signal is told and the sync ends. |
 | P14 | Active set, the set's definition changed in an app update | Old catalog id | As today through `withSetDefinitionResolved`: the current definition counts and the union is filtered against it. App versions may differ within a room; snapshots carry raw data. |
@@ -433,9 +433,9 @@ default that was chosen for the design rather than decided by the product.
 |---|---|---|
 | S1 | Not configured, or sharing off | The button does not exist. |
 | S2 | Sharing on, device offline, server unreachable, or probe pending | Button dimmed with the reason. |
-| S3 | Reachable, row active, not shared, zero progress (set empty; 0 km; 0 streak days; route at its origin on leg 0 with no paused leg) | The caller identity is bound, the room is created, then the row is re-read and re-checked under the lock (S8), then linked with `updateRoomLink` (code and first cache in one statement). The modal shows the code large, a copy button and the share sheet (the text is `Join my Blocktime challenge "Pacific Rim": CODE`). Crew: this pilot. |
+| S3 | Reachable, row active, not shared, zero progress (set empty; 0 km; 0 streak days; route at its origin on leg 0 with no paused leg) | The caller identity is bound, the room is created, then the row is re-read and re-checked under the lock (S8), then linked with `updateRoomLink` (code and first cache in one statement). The modal shows the code large (24sp monospace under "ROOM CODE", with `contentDescription` "Room code CODE"), a copy button and the share sheet beside it (the text is `Join my Blocktime challenge "Pacific Rim": CODE`). Crew: this pilot. |
 | S4 | Reachable, progress above zero | Button dimmed: "Only a fresh challenge can be shared". |
-| S5 | Already shared | Instead of the button: code, copy, share sheet and the crew list, also while offline. |
+| S5 | Already shared | Instead of the button: code, copy, share sheet and the crew list, also while offline. With sharing switched off the code stays and copy and share go, as for a closed room (P11). |
 | S6 | Creating the room fails as unreachable | No local change; "Server not reachable, try again". |
 | S7 | Terminal row | No sharing. |
 | S8 | The row changed between creating the room and taking the lock (a landing, an abandon, a second share) | The re-check fails, the room's code goes to `pending_room_leaves` and the next sync leaves it, result *not eligible* with the fresh reason (or *unknown* for a deleted row). |

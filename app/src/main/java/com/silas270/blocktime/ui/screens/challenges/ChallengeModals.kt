@@ -45,6 +45,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -251,11 +253,12 @@ internal fun ChallengePickerModal(
                 }
 
                 // Absent, not dimmed, without sharing (J1): the pilot has not asked for anything
-                // online, so nothing online is offered.
+                // online, so nothing online is offered. Haze rather than the Border token for the
+                // rule: on the dark surface the token is a shade of the card and vanished.
                 if (availability != OnlineFeatureAvailability.HIDDEN) {
                     Spacer(modifier = Modifier.height(Spacing.Medium))
-                    HorizontalDivider(color = Border.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(Spacing.Medium))
+                    HorizontalDivider(color = Haze.copy(alpha = 0.6f))
+                    Spacer(modifier = Modifier.height(Spacing.Small))
                     JoinRoomRow(
                         availability = availability,
                         lookup = roomLookup,
@@ -394,8 +397,10 @@ internal fun ChallengePickerModal(
 /**
  * "Have a code?" under the type grid (docs/shared-challenges.md "Joining", J2, J3, J7 to J12).
  * The field takes only the room alphabet in upper case and stops at six characters, so what is
- * typed is a code or nothing; the button and the search key both look it up. Below, one caption
- * says why the field is dimmed or why the last look-up failed.
+ * typed is a code or nothing; the button and the search key both look it up. The field and the
+ * button share one row and the caption below exists only while there is something to say, so
+ * the picker grows by as little as the row itself. The unfocused border is Haze, not the Border
+ * token, for the same reason as the rule above it.
  */
 @Composable
 private fun JoinRoomRow(
@@ -440,8 +445,8 @@ private fun JoinRoomRow(
                 disabledContainerColor = DeepNavy,
                 cursorColor = Amber,
                 focusedBorderColor = Amber,
-                unfocusedBorderColor = Border.copy(alpha = 0.3f),
-                disabledBorderColor = Border.copy(alpha = 0.3f),
+                unfocusedBorderColor = Haze.copy(alpha = 0.6f),
+                disabledBorderColor = Haze.copy(alpha = 0.3f),
                 focusedTextColor = OffWhite,
                 unfocusedTextColor = OffWhite,
                 disabledTextColor = Haze,
@@ -916,14 +921,18 @@ internal fun ChallengeInfoModal(
         if (shared) {
             val today = remember { LocalDate.now() }
             Spacer(modifier = Modifier.height(Spacing.Medium))
+            val roomGone = challenge.roomState?.room?.roomGone == true
             CrewSection(
                 lines = challenge.crewLines(today),
                 code = challenge.roomCode,
+                // Nobody can join a room the server has closed (P11), and with sharing off
+                // nothing online is offered (S1), so the code stays but copy and share go.
+                canShareCode = !roomGone && availability != OnlineFeatureAvailability.HIDDEN,
                 onCopyCode = onCopyCode,
                 onShareCode = onShareCode,
-                // A room the server no longer knows keeps its cached crew but says so (P8); the
+                // A room the server no longer knows keeps its cached crew but says so (P11); the
                 // rest of the time the line is the sync age, or why there is no sync right now.
-                caption = if (challenge.roomState?.room?.roomGone == true) {
+                caption = if (roomGone) {
                     "Room closed · continuing solo"
                 } else {
                     syncedAgo ?: onlineHint(availability)
@@ -1134,13 +1143,15 @@ private fun streakStateOf(participant: ParticipantSnapshot, today: LocalDate): S
 }
 
 /**
- * "CREW", the list, then (for the pilot's own row) the room code with copy and share, and a
- * caption under it. The join preview passes no [code]: the pilot just typed it.
+ * "CREW", the list, then (for the pilot's own row) the room code large with copy and share
+ * beside it (S3), and a caption under it. The join preview passes no [code]: the pilot just
+ * typed it. [canShareCode] false keeps the code but drops the two buttons.
  */
 @Composable
 private fun CrewSection(
     lines: List<CrewLine>,
     code: String?,
+    canShareCode: Boolean = true,
     onCopyCode: (String) -> Unit = {},
     onShareCode: (String) -> Unit = {},
     caption: String? = null
@@ -1164,32 +1175,48 @@ private fun CrewSection(
     }
     if (code != null) {
         Spacer(modifier = Modifier.height(Spacing.Medium))
-        Row(
+        // The code is the thing the pilot reads out or types into another phone, so it is the
+        // largest text in the modal: six monospace characters, spaced out. The code and its two
+        // buttons wrap as one centred group (about 200dp), which fits a 360dp screen without
+        // wrapping, and the code alone stays centred when the buttons are gone.
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            FocusBadge(
-                text = code,
-                variant = BadgeVariant.Primary,
-                style = BadgeStyle.Outlined,
-                size = BadgeSize.Standard
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { onCopyCode(code) }) {
-                Icon(
-                    imageVector = Icons.Outlined.ContentCopy,
-                    contentDescription = "Copy code",
-                    tint = Amber,
-                    modifier = Modifier.size(20.dp)
+            CaptionLabel(text = "ROOM CODE")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = code,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp,
+                        letterSpacing = 4.sp
+                    ),
+                    color = OffWhite,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier.semantics { contentDescription = "Room code $code" }
                 )
-            }
-            IconButton(onClick = { onShareCode(code) }) {
-                Icon(
-                    imageVector = Icons.Outlined.Share,
-                    contentDescription = "Share code",
-                    tint = Amber,
-                    modifier = Modifier.size(20.dp)
-                )
+                if (canShareCode) {
+                    Spacer(modifier = Modifier.width(Spacing.Small))
+                    IconButton(onClick = { onCopyCode(code) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = "Copy code",
+                            tint = Amber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = { onShareCode(code) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Share,
+                            contentDescription = "Share code",
+                            tint = Amber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
         }
     }
