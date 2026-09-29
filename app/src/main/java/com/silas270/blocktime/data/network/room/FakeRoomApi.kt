@@ -243,11 +243,15 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 }
 
 /**
- * Tells the API on whose behalf the app calls. `HttpRoomApi` sends the pilot code as the
- * `X-Pilot` header on every request and needs nothing here; the fake has no request to read it
- * from, so the repository and the syncer bind it before their first call. A no-op for every
- * other implementation, which is why callers can use it without knowing which one they hold.
+ * Tells the API on whose behalf the app calls: [HttpRoomApi] sends the pilot code as `X-Pilot`
+ * and [secret] as `Authorization: Bearer` on every request, and the fake, which has no request to
+ * read a header from, answers [RoomResult.Unauthorized] for a snapshot that is not [userCode]'s.
+ * The repository and the syncer bind before their first call. A no-op for [NoRoomApi], which is
+ * why callers can use it without knowing which implementation they hold.
  */
-internal fun RoomApi.bindCallerIdentity(userCode: String) {
-    if (this is FakeRoomApi) callerUserCode = userCode
+internal fun RoomApi.bindCallerIdentity(userCode: String, secret: String) {
+    when (this) {
+        is FakeRoomApi -> callerUserCode = userCode
+        is HttpRoomApi -> bindCaller(userCode, secret)
+    }
 }

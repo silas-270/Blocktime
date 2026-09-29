@@ -21,9 +21,7 @@ object RoomApiProvider {
     /** The fake behind [roomApi] when the build has no server URL, for the debug receiver. */
     internal val fake: FakeRoomApi? = if (BuildConfig.ROOM_SERVER_URL.isBlank()) FakeRoomApi() else null
 
-    val roomApi: RoomApi = fake
-        // TODO(G8): HttpRoomApi(BuildConfig.ROOM_SERVER_URL) once the backend exists.
-        ?: NoRoomApi
+    val roomApi: RoomApi = fake ?: HttpRoomApi(BuildConfig.ROOM_SERVER_URL)
 
     private var attached = false
 

@@ -155,7 +155,7 @@ class SharedChallengeSyncer(
         }
         val profile = userRepository.getProfile() ?: return publish(SyncSummary.Skipped(state))
         val selfCode = profile.userCode
-        roomApi.bindCallerIdentity(selfCode)
+        roomApi.bindCallerIdentity(selfCode, preferencesRepository.getOrCreateRoomSecret())
 
         val rows = challengeRepository.listSyncableChallenges()
 

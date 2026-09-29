@@ -189,11 +189,11 @@ stand-in that does nothing. The In-Flight `FlightDebugMenu` is the main example:
 ViewModel hooks it drives (`debugSeek`, `setDebugTimeScale`, `skipFlight`) are in main code, but
 nothing in a release build calls them, so release flights always run at real time.
 
-`RoomApiProvider` is the other pair. The release one maps a `ROOM_SERVER_URL` to the room
-API client and a blank one to `NoRoomApi`, which hides every sharing surface; the debug one does
-the same with a URL, and without one uses the in-memory `FakeRoomApi`, exposed as
-`RoomApiProvider.fake`, so the whole sharing flow can be walked on a phone before a backend
-exists ([shared-challenges.md](shared-challenges.md#debugging-without-a-server)).
+`RoomApiProvider` is the other pair. The release one maps a `ROOM_SERVER_URL` to `HttpRoomApi`,
+the client of the server in `backend/`, and a blank one to `NoRoomApi`, which hides every sharing
+surface; the debug one does the same with a URL, and without one uses the in-memory
+`FakeRoomApi`, exposed as `RoomApiProvider.fake`, so the whole sharing flow can be walked on a
+phone without a server ([shared-challenges.md](shared-challenges.md#debugging-without-a-server)).
 
 The debug manifest also registers three broadcast receivers: `PerfScenarioReceiver`, which tags a
 Perfetto capture for `tools/run_perf_scenario.sh`, `DebugSeedReceiver`, which inserts a set of

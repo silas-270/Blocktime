@@ -231,11 +231,12 @@ server binds a code to its secret on the first write it sees. Both live in the a
 and travel with an Android backup, so a restored phone can write to the same rooms; two phones
 restored from one backup both can, and the last write wins.
 
-The HTTP client will send the code as `X-Pilot` and the secret as `Authorization: Bearer` on every
-request. Because the in-memory fake has no request to read a header from, the repository and the
-syncer call `bindCallerIdentity(userCode)` before their first call; it sets `FakeRoomApi.callerUserCode`
-and is a no-op for every other implementation. The fake then answers `Unauthorized` for a snapshot
-or a claim whose code is not the bound caller's, as the server would.
+The HTTP client sends the code as `X-Pilot` and the secret as `Authorization: Bearer` on every
+request. The repository and the syncer call `bindCallerIdentity(userCode, secret)` before their
+first call; it binds `HttpRoomApi`, sets `FakeRoomApi.callerUserCode` (the fake has no request to
+read a header from) and is a no-op for `NoRoomApi`. Both answer `Unauthorized` for a snapshot or a
+claim whose code is not the bound caller's. The server stores only the SHA-256 of the secret: the
+secret is 160 random bits, so a slow password hash would buy nothing.
 
 ## The merge
 
@@ -514,31 +515,49 @@ The server is a key-value store with five routes. It knows nothing about flights
 
 | Method | Path | Body | Reply | Rules |
 |---|---|---|---|---|
-| GET | `/health` | | 204 | the probe |
-| POST | `/rooms` | definition, own snapshot | room state | code: six characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`; creator gets colour 0 |
-| GET | `/rooms/{code}` | | room state, or 404 | |
-| PUT | `/rooms/{code}/participants/{userCode}` | snapshot, optional claim | room state; 404; 409 with `RaceLocked`, `RoomClosed` or `RoomFull`; 401 | Upsert. A stranger's first put is a join and takes the next free colour; a `left` snapshot with the same code is replaced. Only a join can be refused: a route room refuses one once any participant has progress, a room with an outcome refuses one, and so does a full room (leavers still count). A claim is kept only while the room has no outcome; the first wins. Route placements: the claimer first, then the rest by progress, leavers unranked. The server sets `updatedAt` and `version`, and always sends `bySelf` false. |
-| DELETE | `/rooms/{code}/participants/{userCode}` | | 204 | marks `left`; the snapshot stays, so pooled contributions stay. Idempotent, and succeeds for a pilot who was never in the room. |
+| GET | `/health` | | 204, or 503 when the database does not answer | the probe |
+| POST | `/rooms` | `{definition, snapshot}` | 201, room state; 401 | code: six characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`; creator gets colour 0 |
+| GET | `/rooms/{code}` | | room state, or 404 | needs no pilot headers: the code is the capability |
+| PUT | `/rooms/{code}/participants/{userCode}` | `{snapshot, claim?}` | room state; 404; 409 with `{"error": "RaceLocked" \| "RoomClosed" \| "RoomFull"}`; 401 | Upsert. A stranger's first put is a join and takes the next free colour; a `left` snapshot with the same code is replaced. Only a join can be refused: a route room refuses one once any participant has progress, a room with an outcome refuses one, and so does a full room (leavers still count). A claim is kept only while the room has no outcome; the first wins. Route placements: the claimer first, then the rest by progress, leavers unranked. The server sets `colorIndex`, `left`, `updatedAt` and `version`, and never sends `bySelf`. |
+| DELETE | `/rooms/{code}/participants/{userCode}` | | 204; 404 for an unknown room | marks `left`; the snapshot stays, so pooled contributions stay. Idempotent, and succeeds for a pilot who was never in the room. |
 
-Headers: `X-Pilot: <userCode>`, `Authorization: Bearer <secret>`. At most six participants. A room
-is deleted 30 days after its outcome, or 180 days after its last write ⚑. Look-ups by code are
-rate-limited against guessing. A room is under 4 KB, which is why any free tier will do, and why
-the base URL is a build-time setting (`ROOM_SERVER_URL` in `local.properties`, compiled into
-`BuildConfig`) that anyone can point at their own server.
+A claim is `{kind: "completed" | "failed", at?, brokenBy?}`; an unknown kind is no claim. Headers
+on a write: `X-Pilot: <userCode>` and `Authorization: Bearer <secret>`; the path's and the
+snapshot's `userCode` must both be the caller's, or the answer is 401. At most six participants. A
+room is deleted 30 days after its outcome, or 180 days after its last write, by an hourly sweep.
+Look-ups are rate-limited against guessing: 60 misses (404s on a room path) per client address in
+ten minutes, after which every room request from that address is 429 until the window ends, hits
+included, since a hit would still tell a guesser the code exists. Bodies over 16 KB are 413; a room
+is under 4 KB, which is why any free tier will do, and why the base URL is a build-time setting
+(`ROOM_SERVER_URL` in `local.properties`, compiled into `BuildConfig`) that anyone can point at
+their own server.
+
+**The server keeps a definition and a snapshot as the JSON objects the app sent**, reading only the
+fields its rules need (`type`, `userCode`, `routeProgress`, `legIndex`) and writing only its own
+stamps. A field a newer app version adds therefore reaches an older one untouched, which the
+client's `toDomain()` defaults then handle (Y9).
 
 On the client the protocol is one interface, `RoomApi`, whose calls never throw for a server-side
-condition and instead return a `RoomResult`: `Ok`, `Unreachable` (timeout, DNS, connection error
-or a 5xx: the server did not answer, nothing changes locally), `NotFound`, `RoomClosed`,
-`RaceLocked`, `RoomFull` or `Unauthorized`. Two implementations exist today: `NoRoomApi`, whose
-`isConfigured` is false and which hides every sharing surface, and `FakeRoomApi`, an in-memory
-room store that applies every rule in the table above, that unit tests drive to play the other
-pilots, and that a debug build without a server uses with a bot crew member. **The fake's test
-suite (`FakeRoomApiTest`) is the backend's contract test.** The HTTP client, `HttpRoomApi`, is the
-next stage: until it exists, `RoomApiProvider` in `src/release` maps a configured URL to
-`NoRoomApi` as well, so a release build can never talk to a server that has not been contract-tested,
-and `RoomApiProvider` in `src/debug` uses the fake when the URL is blank, keeps its rooms in a
-file (see [Debugging without a server](#debugging-without-a-server)) and exposes it as
-`RoomApiProvider.fake` for the debug receiver.
+condition and instead return a `RoomResult`: `Ok`, `Unreachable`, `NotFound`, `RoomClosed`,
+`RaceLocked`, `RoomFull` or `Unauthorized`. Three implementations exist:
+
+- `HttpRoomApi`, the client of the server in `backend/` (see backend/README.md), used by both
+  builds when `ROOM_SERVER_URL` is set. 404, 401 and the three 409s map to their cases; everything
+  else that is not a success (a timeout, DNS or connection error, a 5xx, a 429, an unknown 409, a
+  body this app version cannot map) is `Unreachable`, so nothing changes locally. A write before
+  any pilot is bound answers `Unauthorized` without asking the server.
+- `NoRoomApi`, whose `isConfigured` is false and which hides every sharing surface.
+- `FakeRoomApi`, an in-memory room store that applies every rule in the table above, that unit
+  tests drive to play the other pilots, and that a debug build without a server uses with a bot
+  crew member. `RoomApiProvider` in `src/debug` uses it when the URL is blank, keeps its rooms in a
+  file (see [Debugging without a server](#debugging-without-a-server)) and exposes it as
+  `RoomApiProvider.fake` for the debug receiver.
+
+**The contract is tested three times**: `FakeRoomApiTest` holds the fake to the rules,
+`backend/tests/protocol.rs` holds the server to the same rules over HTTP, and
+`HttpRoomApiLiveTest` walks them through the app's own client against a running server (it is
+skipped unless `ROOM_SERVER_TEST_URL` is set), which proves the two JSON codecs agree.
+`HttpRoomApiTest` covers the status mapping against a scripted server.
 
 ## Debugging without a server
 

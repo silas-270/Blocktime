@@ -24,6 +24,9 @@
 -keep class com.silas270.blocktime.data.network.room.RoomStateDto { <fields>; <init>(...); }
 -keep class com.silas270.blocktime.data.network.room.RoomStateCacheDto { <fields>; <init>(...); }
 -keep class com.silas270.blocktime.data.network.room.ClaimDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.CreateRoomBodyDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.PutSnapshotBodyDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.ErrorDto { <fields>; <init>(...); }
 
 # Debug logging stays out of release builds. Log.i/w/e are kept.
 -assumenosideeffects class android.util.Log {

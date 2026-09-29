@@ -540,6 +540,10 @@ class LocalChallengeRepository(
         serverReachability?.report(result !is RoomResult.Unreachable)
     }
 
+    /** The pilot's room secret. Blank only for a repository built without preferences (tests),
+     *  whose api is never the HTTP one. */
+    private fun roomSecret(): String = preferencesRepository?.getOrCreateRoomSecret() ?: ""
+
     /** The pilot's own snapshot of [this] row, as the server should see it. */
     private fun Challenge.ownSnapshot(profile: UserProfile, colorIndex: Int) =
         toParticipantSnapshot(profile.username, colorIndex, LocalDate.now(clock), clock.zone)
@@ -551,7 +555,7 @@ class LocalChallengeRepository(
         row.shareIneligibility()?.let { return ShareResult.NotEligible(it) }
 
         // The round trip, outside the lock. The creator is colour 0 by the protocol.
-        roomApi.bindCallerIdentity(profile.userCode)
+        roomApi.bindCallerIdentity(profile.userCode, roomSecret())
         val created = roomApi.createRoom(row.toRoomDefinition(), row.ownSnapshot(profile, colorIndex = 0))
         report(created)
         val room = when (created) {
@@ -600,7 +604,7 @@ class LocalChallengeRepository(
             return if (existing.status == ChallengeStatus.ACTIVE) JoinResult.AlreadyJoined(existing.id) else JoinResult.AlreadyFinished
         }
 
-        roomApi.bindCallerIdentity(profile.userCode)
+        roomApi.bindCallerIdentity(profile.userCode, roomSecret())
         val looked = roomApi.getRoom(roomCode)
         report(looked)
         val room = when (looked) {

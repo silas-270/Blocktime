@@ -5,8 +5,10 @@
          (see tools/run_perf_scenario.sh at the repo root). Merged only into
          debug builds, never present in a release/Play-Store APK. Triggered via
          adb shell am broadcast with action com.silas270.blocktime.PERF_SCENARIO
-         and an int extra named scenario_id. -->
-    <application>
+         and an int extra named scenario_id.
+         Cleartext is allowed in debug only, so ROOM_SERVER_URL can point at a room server on
+         the developer's machine (http://<LAN address>:8080); release stays HTTPS-only. -->
+    <application android:usesCleartextTraffic="true">
         <receiver
             android:name=".engine.live.PerfScenarioReceiver"
             android:exported="true">
