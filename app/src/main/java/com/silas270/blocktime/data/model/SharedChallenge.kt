@@ -139,6 +139,17 @@ data class RoomState(
 )
 
 /**
+ * The colour a pilot joining [this] room would take: the first index no participant holds,
+ * which is the join order while nobody is removed (a leaver keeps their snapshot and colour).
+ * The server assigns it on the join; the client computes the same value for the snapshot it
+ * sends so the two cannot disagree.
+ */
+fun RoomState.nextFreeColorIndex(): Int {
+    val taken = participants.map { it.colorIndex }.toSet()
+    return generateSequence(0) { it + 1 }.first { it !in taken }
+}
+
+/**
  * What the `room_state` column holds: the last room state seen, together with the pilot's own
  * code, so `crew()`, team progress and the choice of presentation are pure functions of the row.
  */

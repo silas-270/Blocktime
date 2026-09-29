@@ -1,6 +1,11 @@
 package com.silas270.blocktime.data.repository
 
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
+import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.RoomState
+import com.silas270.blocktime.data.network.room.RoomResult
+import com.silas270.blocktime.domain.MergeResult
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -16,6 +21,121 @@ sealed class StartChallengeResult {
 
     /** The requested curated catalogId/setId doesn't exist in the seed catalog. */
     object UnknownTemplate : StartChallengeResult()
+}
+
+/** Why a row cannot be shared right now (docs/shared-challenges.md "Sharing", S3, S4, S7). */
+enum class ShareIneligibility {
+    /** Terminal rows are never shared (S7). */
+    NOT_ACTIVE,
+
+    /** Already linked to a room; the modal shows the code instead (S5). */
+    ALREADY_SHARED,
+
+    /** Only a fresh challenge can be shared (S4). */
+    HAS_PROGRESS,
+
+    /** A route with a paused leg is mid-flight, even at leg zero (S3). */
+    HAS_PAUSED_LEG,
+
+    /** The row does not exist. */
+    UNKNOWN,
+}
+
+/**
+ * Why [challenge] cannot be shared, or null when it can (situation S3): active, not yet linked
+ * to a room, and at zero progress for its type. Zero progress is judged per type, because each
+ * type records it differently: an empty set, no kilometres, no streak day credited, or a route
+ * still at its origin on leg zero with no paused leg. Pure, so the info modal can dim the button
+ * with the same rule the repository enforces.
+ */
+fun Challenge.shareIneligibility(): ShareIneligibility? = when {
+    status != ChallengeStatus.ACTIVE -> ShareIneligibility.NOT_ACTIVE
+    roomCode != null -> ShareIneligibility.ALREADY_SHARED
+    type == ChallengeType.ROUTE && pausedFlight != null -> ShareIneligibility.HAS_PAUSED_LEG
+    hasOwnProgress() -> ShareIneligibility.HAS_PROGRESS
+    else -> null
+}
+
+private fun Challenge.hasOwnProgress(): Boolean = when (type) {
+    ChallengeType.SET_COMPLETION -> visitedSetMembers.isNotEmpty()
+    ChallengeType.DISTANCE -> cumulativeDistanceKm > 0.0
+    ChallengeType.STREAK -> streakDays != 0 || lastFlownDay != null
+    ChallengeType.ROUTE -> positionIata != originIata || legIndex != 0
+}
+
+/** Result of [ChallengeRepository.shareChallenge] (docs/shared-challenges.md "Sharing"). */
+sealed interface ShareResult {
+    /** The room exists and the row is linked to it. [challenge] is the linked row. */
+    data class Shared(val code: String, val challenge: Challenge) : ShareResult
+
+    /** Nothing was changed. Includes the re-check under the lock failing after the room was
+     *  created (S8); the room is then left by the next sync. */
+    data class NotEligible(val reason: ShareIneligibility) : ShareResult
+
+    /** The server did not create the room; nothing was changed (S6). */
+    data class Unavailable(val error: RoomResult<Nothing>) : ShareResult
+}
+
+/** Result of [ChallengeRepository.joinRoom] (docs/shared-challenges.md "Joining"). */
+sealed interface JoinResult {
+    /** The row exists locally and the server has the pilot's snapshot (J4). */
+    data class Joined(val challenge: Challenge) : JoinResult
+
+    /** The cap was full once the server had accepted; the room was left again (J5). */
+    data object CapReached : JoinResult
+
+    /** An active local row already has this code (J6a). */
+    data class AlreadyJoined(val activeId: Int) : JoinResult
+
+    /** A finished local row has this code; a room is joined once per pilot (J6b). */
+    data object AlreadyFinished : JoinResult
+
+    /** This app version cannot build a row from the room's definition (J12). */
+    data object UnknownTemplate : JoinResult
+
+    /** No room with that code (J3). */
+    data object NotFound : JoinResult
+
+    /** The room already has an outcome (J7). */
+    data object RoomClosed : JoinResult
+
+    /** A race that already has progress (J8). */
+    data object RaceLocked : JoinResult
+
+    /** Six pilots already (J10). */
+    data object RoomFull : JoinResult
+
+    /** The server did not answer usefully; nothing was changed (J11). */
+    data class Unavailable(val error: RoomResult<Nothing>) : JoinResult
+}
+
+/**
+ * This result as the failure it is. Every failure case is a `data object` typed
+ * `RoomResult<Nothing>`, so this is a narrowing the compiler cannot do from a `when` on its own.
+ * Throws for [RoomResult.Ok], which is not a failure.
+ */
+fun RoomResult<*>.asFailure(): RoomResult<Nothing> = when (this) {
+    is RoomResult.Ok -> throw IllegalArgumentException("Ok is not a failure")
+    RoomResult.NotFound -> RoomResult.NotFound
+    RoomResult.RoomClosed -> RoomResult.RoomClosed
+    RoomResult.RaceLocked -> RoomResult.RaceLocked
+    RoomResult.RoomFull -> RoomResult.RoomFull
+    RoomResult.Unreachable -> RoomResult.Unreachable
+    RoomResult.Unauthorized -> RoomResult.Unauthorized
+}
+
+/**
+ * The [JoinResult] a failed room call maps to. Shared by the repository's join and the
+ * picker's look-up, so a code that cannot be joined is explained the same way in both places.
+ * Throws for [RoomResult.Ok], which is not a failure.
+ */
+fun RoomResult<*>.asJoinFailure(): JoinResult = when (val failure = asFailure()) {
+    RoomResult.NotFound -> JoinResult.NotFound
+    RoomResult.RoomClosed -> JoinResult.RoomClosed
+    RoomResult.RaceLocked -> JoinResult.RaceLocked
+    RoomResult.RoomFull -> JoinResult.RoomFull
+    RoomResult.Unreachable, RoomResult.Unauthorized -> JoinResult.Unavailable(failure)
+    is RoomResult.Ok -> throw IllegalStateException("asFailure never returns Ok")
 }
 
 /**
@@ -103,4 +223,61 @@ interface ChallengeRepository {
      * for the day it actually happened on rather than whenever this code runs.
      */
     suspend fun creditEligibleFlight(destIata: String, distanceKm: Double, completedAt: Long)
+
+    // ── Shared challenges (docs/shared-challenges.md) ───────────────────────────────────────
+    //
+    // The pattern behind every operation that talks to the server: read, network, then
+    // `withLock { read again; check; write with a scoped statement }`. No network call ever
+    // runs under the write mutex, and nothing read before a round trip is trusted after it.
+
+    /**
+     * Creates a room for challenge [id] and links the row to it (S3). The row must be active,
+     * unshared and at zero progress ([shareIneligibility]); the check runs before the room is
+     * created and again under the lock, because a landing or an abandon can land in between
+     * (S8), in which case the room is queued to be left and nothing local changes.
+     */
+    suspend fun shareChallenge(id: Int): ShareResult
+
+    /** The room behind [code], for the join preview (J4). The code is normalised to upper case. */
+    suspend fun lookUpRoom(code: String): RoomResult<RoomState>
+
+    /**
+     * Joins the room behind [code]: the pilot's first snapshot is the join on the server, then a
+     * row is built from the room's definition under the lock, after the cap is checked again
+     * (J4, J5). A code the pilot already has a row for is refused without a network call (J6a,
+     * J6b). Removes [code] from the pending leaves (J13).
+     */
+    suspend fun joinRoom(code: String): JoinResult
+
+    /**
+     * Every shared row the syncer has to talk to the server about: still running, or terminal
+     * but not yet presented, and whose room the server still knows. Raw rows, not evaluated
+     * against today: the snapshot factory does that itself.
+     */
+    suspend fun listSyncableChallenges(): List<Challenge>
+
+    /**
+     * Merges [room] into row [id] under the lock, reading the row fresh first, and writes the
+     * result with a scoped statement: the cache alone when nothing else changed, the shared
+     * fields when the merge ended the challenge, and for a route that a foreign completion
+     * ended, the paused leg is cleared in the same statement. Null when the row no longer exists
+     * (P15): a row deleted during the sync is never re-inserted.
+     */
+    suspend fun applyRoomState(id: Int, room: RoomState): MergeResult?
+
+    /** Records in row [id]'s cache that the server no longer knows its room (P11, P12). The row
+     *  keeps running locally and is not synced again. No-op without a cache or a row. */
+    suspend fun markRoomGone(id: Int)
+
+    /** Records that the server accepted the snapshot of [generation]. A no-op when the row has
+     *  moved on since (L11). */
+    suspend fun confirmSynced(id: Int, generation: Long)
+
+    /** Whether any terminal row still waits for its presentation, which is what sends the pilot
+     *  to Challenges after a landing that itself completed nothing (L3, L7). */
+    suspend fun hasPendingPresentation(): Boolean
+
+    /** Deletes row [id] once its shatter has played, and only if it is still failed: the log
+     *  stays a log of successes, and a failed row never carries `celebrated = 1`. */
+    suspend fun dismissFailed(id: Int)
 }

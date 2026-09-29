@@ -35,6 +35,9 @@ interface UserProfileDao {
  * and `LocalAchievementsRepository`. Throws rather than returning null since every repository
  * call site is unreachable before onboarding creates the one profile row.
  */
-suspend fun UserProfileDao.requireProfileId(): Int =
-    getProfile()?.id
-        ?: throw IllegalStateException("No user profile found. Create a profile first.")
+suspend fun UserProfileDao.requireProfileId(): Int = requireProfile().id
+
+/** The whole profile, for the callers that also need the pilot's name and code (sharing). Same
+ *  contract as [requireProfileId]: onboarding has created the row before any of them can run. */
+suspend fun UserProfileDao.requireProfile(): UserProfile =
+    getProfile() ?: throw IllegalStateException("No user profile found. Create a profile first.")

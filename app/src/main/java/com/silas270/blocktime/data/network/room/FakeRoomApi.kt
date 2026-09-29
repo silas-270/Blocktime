@@ -9,6 +9,7 @@ import com.silas270.blocktime.data.model.RoomDefinition
 import com.silas270.blocktime.data.model.RoomState
 import com.silas270.blocktime.data.model.SharedOutcome
 import com.silas270.blocktime.data.model.generateCode
+import com.silas270.blocktime.data.model.nextFreeColorIndex
 import kotlinx.coroutines.delay
 
 /**
@@ -99,7 +100,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 
             val now = clock()
             val stored = self.copy(
-                colorIndex = existing?.colorIndex ?: room.nextColorIndex(),
+                colorIndex = existing?.colorIndex ?: room.nextFreeColorIndex(),
                 left = false,
                 updatedAt = now,
             )
@@ -140,7 +141,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
             val snapshot = ParticipantSnapshot(
                 userCode = userCode,
                 username = username,
-                colorIndex = room.nextColorIndex(),
+                colorIndex = room.nextFreeColorIndex(),
                 updatedAt = clock(),
             )
             rooms[code] = room.copy(participants = room.participants + snapshot, version = room.version + 1)
@@ -172,12 +173,6 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 
     private fun ParticipantSnapshot.hasRouteProgress(): Boolean = routeProgress > 0f || legIndex > 0
 
-    /** Join order: the first colour no participant holds, which is the count while nobody is removed. */
-    private fun RoomState.nextColorIndex(): Int {
-        val taken = participants.map { it.colorIndex }.toSet()
-        return generateSequence(0) { it + 1 }.first { it !in taken }
-    }
-
     /**
      * Route placements: the arrivals in order of arrival, then the rest by progress. With the
      * first claim closing the room there is exactly one arrival, the claimer; the others rank by
@@ -203,4 +198,14 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
         }
         is OutcomeClaim.Failed -> SharedOutcome.Failed(brokenByUserCode = claim.brokenBy, bySelf = false, at = now)
     }
+}
+
+/**
+ * Tells the API on whose behalf the app calls. `HttpRoomApi` sends the pilot code as the
+ * `X-Pilot` header on every request and needs nothing here; the fake has no request to read it
+ * from, so the repository and the syncer bind it before their first call. A no-op for every
+ * other implementation, which is why callers can use it without knowing which one they hold.
+ */
+internal fun RoomApi.bindCallerIdentity(userCode: String) {
+    if (this is FakeRoomApi) callerUserCode = userCode
 }

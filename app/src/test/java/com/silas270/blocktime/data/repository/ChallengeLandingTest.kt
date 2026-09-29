@@ -2,6 +2,9 @@ package com.silas270.blocktime.data.repository
 
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.FlightMode
+import com.silas270.blocktime.data.model.RoomState
+import com.silas270.blocktime.data.network.room.RoomResult
+import com.silas270.blocktime.domain.MergeResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -60,6 +63,17 @@ class ChallengeLandingTest {
         override suspend fun creditEligibleFlight(destIata: String, distanceKm: Double, completedAt: Long) {
             creditedFlights.add(Triple(destIata, distanceKm, completedAt))
         }
+
+        // The sharing side is never reached by the landing pipeline.
+        override suspend fun shareChallenge(id: Int): ShareResult = throw NotImplementedError("unused in this test")
+        override suspend fun lookUpRoom(code: String): RoomResult<RoomState> = throw NotImplementedError("unused in this test")
+        override suspend fun joinRoom(code: String): JoinResult = throw NotImplementedError("unused in this test")
+        override suspend fun listSyncableChallenges(): List<Challenge> = emptyList()
+        override suspend fun applyRoomState(id: Int, room: RoomState): MergeResult? = null
+        override suspend fun markRoomGone(id: Int) = Unit
+        override suspend fun confirmSynced(id: Int, generation: Long) = Unit
+        override suspend fun hasPendingPresentation(): Boolean = false
+        override suspend fun dismissFailed(id: Int) = Unit
     }
 
     @Test

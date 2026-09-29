@@ -1,7 +1,5 @@
 package com.silas270.blocktime.data.repository
 
-import com.silas270.blocktime.data.local.ChallengeDao
-import com.silas270.blocktime.data.local.UserProfileDao
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeStatus
@@ -10,12 +8,10 @@ import com.silas270.blocktime.data.model.CuratedChallengeSets
 import com.silas270.blocktime.data.model.CuratedChallengeCatalog
 import com.silas270.blocktime.data.model.PredefinedRouteCatalog
 import com.silas270.blocktime.data.model.progressFraction
-import com.silas270.blocktime.data.model.RoomStateCache
-import com.silas270.blocktime.data.model.Runway
-import com.silas270.blocktime.data.model.SharedOutcome
 import com.silas270.blocktime.data.model.UserProfile
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.silas270.blocktime.testutil.FakeAirportRepository
+import com.silas270.blocktime.testutil.FakeChallengeDao
+import com.silas270.blocktime.testutil.FakeUserProfileDao
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -35,178 +31,10 @@ import java.time.ZoneOffset
  * position-pointer scoping (including the accepted decreasing-progress case), Distance
  * accumulation, and Set-completion crediting (including its "starts fresh per instance"
  * isolation guarantee) - all via hand-written fakes for [ChallengeDao]/[UserProfileDao]/
- * [AirportRepository], the same fake-collaborator pattern the other repository tests use for
- * repository interfaces.
+ * [AirportRepository] (shared with the sharing and syncer tests, in `testutil`), the same
+ * fake-collaborator pattern the other repository tests use for repository interfaces.
  */
 class LocalChallengeRepositoryTest {
-
-    private class FakeChallengeDao : ChallengeDao {
-        private val rows = mutableMapOf<Int, Challenge>()
-        private var nextId = 1
-
-        override suspend fun insert(challenge: Challenge): Long {
-            val id = nextId++
-            rows[id] = challenge.copy(id = id)
-            return id.toLong()
-        }
-
-        override suspend fun update(challenge: Challenge) {
-            rows[challenge.id] = challenge
-        }
-
-        override suspend fun updatePausedFlight(id: Int, flight: com.silas270.blocktime.data.model.PausedFlight?) {
-            rows[id]?.let { rows[id] = it.copy(pausedFlight = flight) }
-        }
-
-        override suspend fun updateRouteProgress(
-            id: Int,
-            positionIata: String?,
-            routeProgressFraction: Float,
-            legIndex: Int,
-            status: ChallengeStatus,
-            completedAt: Long?,
-            syncGeneration: Long
-        ) {
-            rows[id]?.let {
-                rows[id] = it.copy(
-                    positionIata = positionIata,
-                    routeProgressFraction = routeProgressFraction,
-                    legIndex = legIndex,
-                    status = status,
-                    completedAt = completedAt,
-                    syncGeneration = syncGeneration
-                )
-            }
-        }
-
-        override suspend fun deleteById(id: Int) {
-            rows.remove(id)
-        }
-
-        override suspend fun getById(id: Int): Challenge? = rows[id]
-
-        override suspend fun getByStatus(userId: Int, status: ChallengeStatus): List<Challenge> =
-            rows.values.filter { it.userId == userId && it.status == status }
-
-        override fun getByStatusFlow(userId: Int, status: ChallengeStatus): Flow<List<Challenge>> =
-            MutableStateFlow(getByStatusBlocking(userId, status))
-
-        private fun getByStatusBlocking(userId: Int, status: ChallengeStatus): List<Challenge> =
-            rows.values.filter { it.userId == userId && it.status == status }
-
-        override suspend fun countByStatus(userId: Int, status: ChallengeStatus): Int =
-            rows.values.count { it.userId == userId && it.status == status }
-
-        override suspend fun getByStatusOrderedByCompletedAt(userId: Int, status: ChallengeStatus): List<Challenge> =
-            rows.values
-                .filter { it.userId == userId && it.status == status }
-                .sortedByDescending { it.completedAt ?: 0L }
-
-        /** Mirrors the DAO's slot predicate: ACTIVE, or terminal (COMPLETED or FAILED) and not
-         *  yet presented. */
-        private fun Challenge.occupiesSlot(): Boolean =
-            status == ChallengeStatus.ACTIVE ||
-                ((status == ChallengeStatus.COMPLETED || status == ChallengeStatus.FAILED) && !celebrated)
-
-        override fun getSlotDisplayFlow(userId: Int): Flow<List<Challenge>> =
-            MutableStateFlow(
-                rows.values
-                    .filter { it.userId == userId && it.occupiesSlot() }
-                    .sortedBy { it.id }
-            )
-
-        override suspend fun countOccupyingSlots(userId: Int): Int =
-            rows.values.count { it.userId == userId && it.occupiesSlot() }
-
-        override suspend fun getCelebratedCompletedOrderedByCompletedAt(userId: Int): List<Challenge> =
-            rows.values
-                .filter { it.userId == userId && it.status == ChallengeStatus.COMPLETED && it.celebrated }
-                .sortedByDescending { it.completedAt ?: 0L }
-
-        override suspend fun markCelebrated(id: Int) {
-            rows[id]?.let { rows[id] = it.copy(celebrated = true) }
-        }
-
-        override suspend fun updateSharedFields(
-            id: Int,
-            status: ChallengeStatus,
-            completedAt: Long?,
-            roomState: RoomStateCache?,
-            sharedOutcome: SharedOutcome?
-        ) {
-            rows[id]?.let {
-                rows[id] = it.copy(status = status, completedAt = completedAt, roomState = roomState, sharedOutcome = sharedOutcome)
-            }
-        }
-
-        override suspend fun updateSharedFieldsAndClearPausedFlight(
-            id: Int,
-            status: ChallengeStatus,
-            completedAt: Long?,
-            roomState: RoomStateCache?,
-            sharedOutcome: SharedOutcome?
-        ) {
-            rows[id]?.let {
-                rows[id] = it.copy(
-                    status = status,
-                    completedAt = completedAt,
-                    roomState = roomState,
-                    sharedOutcome = sharedOutcome,
-                    pausedFlight = null
-                )
-            }
-        }
-
-        override suspend fun updateRoomState(id: Int, roomState: RoomStateCache?) {
-            rows[id]?.let { rows[id] = it.copy(roomState = roomState) }
-        }
-
-        override suspend fun bumpSyncGeneration(id: Int) {
-            rows[id]?.let { rows[id] = it.copy(syncGeneration = it.syncGeneration + 1) }
-        }
-
-        override suspend fun confirmSynced(id: Int, generation: Long) {
-            rows[id]?.takeIf { it.syncGeneration == generation }?.let { rows[id] = it.copy(syncedGeneration = generation) }
-        }
-
-        override suspend fun updateRoomLink(id: Int, roomCode: String?, roomState: RoomStateCache?) {
-            rows[id]?.let { rows[id] = it.copy(roomCode = roomCode, roomState = roomState) }
-        }
-
-        override suspend fun getSyncable(userId: Int): List<Challenge> =
-            rows.values
-                .filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || !it.celebrated) }
-                .sortedBy { it.id }
-
-        override suspend fun getByRoomCode(userId: Int, roomCode: String): Challenge? =
-            rows.values.firstOrNull { it.userId == userId && it.roomCode == roomCode }
-
-        override suspend fun countPendingPresentation(userId: Int): Int =
-            rows.values.count {
-                it.userId == userId &&
-                    (it.status == ChallengeStatus.COMPLETED || it.status == ChallengeStatus.FAILED) &&
-                    !it.celebrated
-            }
-    }
-
-    private class FakeUserProfileDao(private val profile: UserProfile) : UserProfileDao {
-        override fun getProfileFlow(): Flow<UserProfile?> = MutableStateFlow(profile)
-        override suspend fun getProfile(): UserProfile? = profile
-        override suspend fun insertProfile(profile: UserProfile): Long = profile.id.toLong()
-        override suspend fun updateProfile(profile: UserProfile) = Unit
-        override suspend fun updateUsername(id: Int, username: String, updatedAt: Long) = Unit
-        override suspend fun updateHomeAirport(id: Int, iata: String, updatedAt: Long) = Unit
-    }
-
-    private class FakeAirportRepository(private val airports: Map<String, Airport>) : AirportRepository {
-        override fun ensureDatabaseCopied() = Unit
-        override fun searchAirports(query: String): List<Airport> = emptyList()
-        override fun getAirportByIata(iataCode: String): Airport? = airports[iataCode]
-        override fun getRunwaysForAirport(airportId: Int): List<Runway> = emptyList()
-        override fun getOutboundRoutes(originIata: String, searchQuery: String, sortBy: String) = emptyList<com.silas270.blocktime.data.model.FlightRoute>()
-        override fun getContinentCountryMap(): Map<String, Set<String>> = emptyMap()
-        override fun getCountriesForAirports(iatas: List<String>): Set<String> = emptySet()
-    }
 
     private fun airport(iata: String, lat: Double, lon: Double, continent: String, country: String) = Airport(
         id = iata.hashCode(),
