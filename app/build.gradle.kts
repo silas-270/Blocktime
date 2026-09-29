@@ -19,6 +19,12 @@ val localProperties = Properties().apply {
     }
 }
 
+// The adb-only flight hook (data/dev/FlightHookReceiver.kt), in every build type. true: a
+// computer the phone trusts over USB can add flights to the logbook with
+// `adb shell am broadcast -a com.silas270.blocktime.ADD_FLIGHTS -p com.silas270.blocktime --es flights "JFK-HND"`.
+// false: the receiver is disabled in the manifest and refuses in code; nothing else changes.
+val flightHookEnabled = true
+
 android {
     namespace = "com.silas270.blocktime"
     compileSdk = 37
@@ -49,6 +55,8 @@ android {
             "ROOM_SERVER_URL",
             "\"${localProperties.getProperty("ROOM_SERVER_URL", "")}\""
         )
+        buildConfigField("boolean", "FLIGHT_HOOK_ENABLED", flightHookEnabled.toString())
+        manifestPlaceholders["flightHookEnabled"] = flightHookEnabled.toString()
     }
 
     // The Play upload key. Its path and passwords live in local.properties (RELEASE_STORE_FILE,

@@ -202,6 +202,17 @@ demonstration flights, and `DebugRoomReceiver`, which plays a bot pilot in every
 holds. `CesiumGameActivity` registers a debug-only receiver for navigation and screen capture,
 used by `tools/capture_all_screens.sh`.
 
+One hook ships in release builds too: `FlightHookReceiver` (`data/dev/`) adds flights to the
+logbook from a computer, `adb shell am broadcast -a com.silas270.blocktime.ADD_FLIGHTS -p
+com.silas270.blocktime --es flights "JFK-HND,LHR-SYD"` (add `--es mode FREE` for Free Mode
+flights). The manifest guards it with `android.permission.DUMP`, which the adb shell holds and
+no ordinary app can obtain, so only a computer the phone trusts over USB can use it and there
+is no secret in the APK. The flights go into the logbook only: routes on the globe, Passport
+and achievements, but no challenge credit, no move of the pilot and nothing sent to a shared
+room. `val flightHookEnabled` at the top of app/build.gradle.kts switches it for every build
+type: false disables the receiver in the manifest and refuses in code, and leaves the code in
+place.
+
 ## Build
 
 ```
