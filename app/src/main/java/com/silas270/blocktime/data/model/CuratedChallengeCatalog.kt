@@ -109,7 +109,7 @@ object CuratedChallengeCatalog {
         ),
         CuratedChallengeTemplate(
             catalogId = "route_europe_to_lubango",
-            name = "Europe to Lubango",
+            name = "Flight to Lu",
             description = "Chart onward international connections from Stuttgart all the way into Southern Angola.",
             type = ChallengeType.ROUTE,
             iconName = "map",
