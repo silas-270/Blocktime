@@ -173,7 +173,8 @@ validated connection, and otherwise the last probe result: `UNKNOWN`, `REACHABLE
 "server not reachable". **Data saver does not block sync**: a room is under 4 KB, and the switch is
 about map tiles.
 
-Nothing polls. A probe (`GET /health`) runs at the start of each sync, its result is trusted for
+Nothing polls on its own. A probe (`GET /health`) runs at the start of each sync, the interval
+sync included ([shared-challenges.md](shared-challenges.md#sync-moments)), its result is trusted for
 30 s (`PROBE_TTL_MS`) and asked for again after that, and every API call reports its own outcome,
 so a dead server is noticed by the first request that hits it. The UI reads the state through
 `onlineAvailability(state)`: hidden, dimmed with a reason, or enabled.

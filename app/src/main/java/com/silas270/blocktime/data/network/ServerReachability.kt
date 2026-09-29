@@ -69,7 +69,8 @@ internal fun resolveServerState(
  * This class also owns the "Shared challenges" opt-in, the way [OfflineModeController] owns the
  * data saver, so the Settings row and the server state can never disagree.
  *
- * Nothing here polls. [check] runs the [probe] at the sync moments and before a user action,
+ * Nothing here polls on its own. [check] runs the [probe] at the sync moments (the interval sync
+ * among them) and before a user action,
  * caching the answer for [PROBE_TTL_MS]; every API call [report]s its own outcome, so a dead
  * server is noticed by the first request that hits it.
  *

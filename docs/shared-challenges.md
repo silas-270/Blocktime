@@ -49,6 +49,34 @@ There are no push notifications. `SharedChallengeSyncer` asks the server at exac
 | The Challenges screen opens (`ChallengesViewModel` init) | `SCREEN_OPEN` | 60 s |
 | A landing has been credited and its outcome published (`InFlightViewModel`) | `LANDING` | none |
 | A successful share or join, and abandon (`ChallengesViewModel`) | `USER_ACTION` | none |
+| The connection comes back while the app is in the foreground (`keepFresh`) | `RECONNECT` | none |
+| Every 5 minutes while the app is in the foreground (`keepFresh`) | `PERIODIC` | 60 s |
+| Every 15 minutes in the background, with a connection (`SharedSyncWorker`) | `PERIODIC` | 60 s |
+
+**Nothing is queued as requests; what still has to reach the server is state on the phone**, so it
+survives the app being closed, the process being killed and a reboot. A row's own progress is
+pending while `sync_generation` is ahead of `synced_generation`, a claim is on the row until the
+server's outcome replaces it, and a leave waits in `pending_room_leaves`. Whichever sync runs next
+sends it, however many landings it covers. A server that does not answer (offline, a 5xx, its
+database down) changes nothing locally and leaves it all for the next trigger. Share, look-up and
+join are the exception: they need the server's answer on the spot, so they are never queued and
+their buttons are disabled while it cannot be reached.
+
+The interval has two halves. In the foreground, the Activity runs `SharedChallengeSyncer.keepFresh`
+while it is started: a `PERIODIC` request every 5 minutes, and a `RECONNECT` request each time the
+raw connectivity signal turns true after having been false (the value on arrival is not a change;
+`onStart` has already synced). In the background, `SharedSyncWorker` is a WorkManager periodic job
+every 15 minutes, WorkManager's minimum, constrained to a connected network. It is scheduled
+while the "Shared challenges" switch is on and the build has a server and cancelled otherwise
+(`SharedSyncGraph` follows `ServerReachability.optIn`), and a run with no shared row and no
+pending leave does not even probe the server. Doze and battery savers may stretch the background
+period; that is the platform's call, and the foreground interval takes over as soon as the app is
+open.
+
+**The Activity and the worker share one repository and one syncer** (`SharedSyncGraph`, process
+wide). The repository's write mutex and the syncer's run mutex only serialise what goes through
+the same instance, so a worker with its own pair could merge a room state into a row while the
+Activity credits a landing to it.
 
 Share, look-up and join call the server directly from the repository and report the outcome to
 the reachability signal themselves. A successful share or join then requests `USER_ACTION`, so
@@ -118,8 +146,9 @@ else.** `check()` returns without probing when the state does not depend on the 
 first three lines above), otherwise it trusts a result younger than 30 s (`PROBE_TTL_MS`) and asks
 again after that; `check(force = true)` ignores the cache. A probe that throws counts as
 unreachable. Every API call also reports its own outcome through `report(success)`, which restarts
-the cache window, so a dead server is noticed by the first request that hits it. Nothing polls in
-the background, and the sharing actions do not probe first: they call, and report what they got.
+the cache window, so a dead server is noticed by the first request that hits it. The only
+repeated probes are those of the interval sync, and the sharing actions do not probe first: they
+call, and report what they got.
 
 `onlineAvailability(state)` turns the state into what the UI needs: `HIDDEN` for `NOT_CONFIGURED`
 and `DISABLED`, `DISABLED_OFFLINE`, `DISABLED_UNREACHABLE`, `DISABLED_CHECKING` (opted in and

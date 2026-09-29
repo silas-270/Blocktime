@@ -99,18 +99,22 @@ There is no dependency-injection framework. `CesiumGameActivity.onCreate()` cons
 repository once and hands them to screens through the ViewModel factories. The graph is small
 enough to read in one screen, and the order in which it is built carries meaning:
 
-1. The `flights.db` data source and airport repository, the `PendingFlightLoader`, the
-   preferences repository, the process-wide `OfflineModeController`, and next to it the
-   process-wide `ServerReachability`, the second signal, together with the `RoomApi` that
-   `RoomApiProvider.roomApi` chose for this build ([network.md](network.md#the-second-signal)).
-2. The Room database and the user, flight-log, challenge and achievement repositories. The
-   challenge repository takes the room API, the reachability signal and the preferences, which
-   is what makes share and join repository operations rather than screen logic.
+1. `SharedSyncGraph`, process-wide, because the background sync worker needs the same
+   instances: it attaches the debug fake's file, then builds the airport repository, the
+   preferences repository, the process-wide `ServerReachability` (the second signal) with the
+   `RoomApi` that `RoomApiProvider.roomApi` chose for this build
+   ([network.md](network.md#the-second-signal)), and the user and challenge repositories and the
+   `SharedChallengeSyncer`. The Activity takes those from it, and builds the `PendingFlightLoader`
+   and the process-wide `OfflineModeController` next to them.
+2. The Room database and the flight-log and achievement repositories. The challenge repository
+   from step 1 takes the room API, the reachability signal and the preferences, which is what
+   makes share and join repository operations rather than screen logic.
 3. `PilotProgressRepository`, on an `appScope` that outlives every ViewModel, so the shared
    derivation of the pilot's progress stays warm across navigation
-   ([achievements.md](achievements.md#the-shared-derivation)), and `SharedChallengeSyncer` on the
-   same scope, so a landing's sync request never waits on a ViewModel's scope. `onStart` asks the
-   syncer for a `FOREGROUND` sync, which covers cold start and is debounced
+   ([achievements.md](achievements.md#the-shared-derivation)). The syncer has a process-wide
+   scope of its own, so a landing's sync request never waits on a ViewModel's scope. `onStart`
+   asks it for a `FOREGROUND` sync, which covers cold start and is debounced, and while the
+   Activity is started `keepFresh` adds the 5-minute and reconnect syncs
    ([shared-challenges.md](shared-challenges.md#sync-moments)).
 4. `ensureDatabaseCopied()`, which refreshes the bundled database if the app was installed or
    updated since the last copy ([flight-data.md](flight-data.md#copying-and-opening-it)).

@@ -22,6 +22,9 @@ import com.silas270.blocktime.testutil.RecordingRoomApi
 import com.silas270.blocktime.testutil.testAirport
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -445,5 +448,61 @@ class SharedChallengeSyncerTest {
 
         // The first sync and one follow-up: the probe is the ping, then one getRoom per sync.
         assertEquals(listOf("getRoom", "getRoom"), roomApi.calls)
+    }
+
+    // ── Interval and reconnect ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `an interval sync is debounced, a reconnect sync is not`() = runTest(UnconfinedTestDispatcher()) {
+        sharedRow()
+        val syncer = syncer()
+        syncer.syncNow(SyncReason.FOREGROUND)
+
+        clock.now += 30_000L
+        assertEquals(SyncSummary.Skipped(ServerState.REACHABLE), syncer.syncNow(SyncReason.PERIODIC))
+        assertTrue(syncer.syncNow(SyncReason.RECONNECT) is SyncSummary.Synced)
+        assertEquals(2, roomApi.calls.size)
+    }
+
+    @Test
+    fun `keepFresh syncs on the interval and when the connection comes back`() = runTest {
+        sharedRow()
+        val syncer = SharedChallengeSyncer(repository, LocalUserRepository(profileDao), prefs, roomApi, reachability(), backgroundScope, clock)
+        backgroundScope.launch { syncer.keepFresh(connected, intervalMs = 1_000L) }
+        runCurrent()
+        // Arriving connected is the state on arrival, not a reconnect.
+        assertEquals(0, roomApi.calls.size)
+
+        advanceTimeBy(1_001L)
+        assertEquals(1, roomApi.calls.size)
+
+        connected.value = false
+        runCurrent()
+        connected.value = true
+        runCurrent()
+        // Right after the interval sync: the reconnect is not debounced.
+        assertEquals(2, roomApi.calls.size)
+
+        // The next tick falls inside the debounce window of the reconnect sync...
+        advanceTimeBy(1_000L)
+        assertEquals(2, roomApi.calls.size)
+        // ...and the one after it does not.
+        clock.now += 60_000L
+        advanceTimeBy(1_000L)
+        assertEquals(3, roomApi.calls.size)
+    }
+
+    @Test
+    fun `hasAnythingToSync needs a shared row or a pending leave`() = runTest(UnconfinedTestDispatcher()) {
+        val syncer = syncer()
+        assertFalse(syncer.hasAnythingToSync())
+
+        prefs.addPendingRoomLeave("GONE01")
+        assertTrue(syncer.hasAnythingToSync())
+        prefs.removePendingRoomLeave("GONE01")
+        assertFalse(syncer.hasAnythingToSync())
+
+        sharedRow()
+        assertTrue(syncer.hasAnythingToSync())
     }
 }

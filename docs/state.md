@@ -34,7 +34,7 @@ Short-lived, fast-changing, per-device values, and small preferences. Nothing de
 | `online_features_enabled` | `ServerReachability.setOnlineFeaturesEnabled()` (from the Settings switch) | `ServerReachability`, at construction | The "Shared challenges" opt-in. Off by default. Read through the controller, not the preference, so the switch and the server state cannot disagree. |
 | `room_secret` | `getOrCreateRoomSecret()`, on the first switch-on, once | nothing yet; the HTTP client of the next stage sends it as the bearer token | 32 characters; the password to the pilot's public code. Never regenerated, never shown ([shared-challenges.md](shared-challenges.md#identity)). |
 | `pending_room_leaves` | `LocalChallengeRepository` (a share whose re-check failed, a join the cap refused); `SharedChallengeSyncer` (removed once the server confirms or a live row has the code) | `SharedChallengeSyncer` | Room codes still to be left. A comma-separated string, because codes never contain a comma. |
-| `last_room_sync_at` | `SharedChallengeSyncer`, after each completed sync | `SharedChallengeSyncer` | The 60 s debounce of the foreground and screen-open triggers. |
+| `last_room_sync_at` | `SharedChallengeSyncer`, after each completed sync | `SharedChallengeSyncer` | The 60 s debounce of the foreground, screen-open and interval triggers. |
 
 The two paused-flight slots are serialised `PausedFlight` records; see
 [paused-flights.md](paused-flights.md) for the format and the rules around writing them.
