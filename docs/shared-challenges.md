@@ -543,7 +543,9 @@ A debug build with a blank `ROOM_SERVER_URL` runs against `FakeRoomApi`, and `De
 (registered in the debug manifest for `com.silas270.blocktime.DEBUG_ROOM`) plays a second pilot,
 "Bot Pilot", by mutating that fake directly, exactly as a second phone's uploads would. Nothing in
 it syncs: after each broadcast, bring the app to the foreground or open Challenges, and the real
-merge, presentation and log paths run on the result.
+merge, presentation and log paths run on the result. Both of those syncs are debounced by a minute
+(`SharedChallengeSyncer.DEBOUNCE_MS`), so wait until a minute has passed since the last sync, a
+share or join included, or the change arrives only at the next one.
 
 The fake is persisted to `files/debug_rooms.json`: `CesiumGameActivity.onCreate` calls
 `RoomApiProvider.attach(filesDir)` before anything uses the room api (the receiver calls it too,

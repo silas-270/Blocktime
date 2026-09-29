@@ -65,7 +65,9 @@ import java.time.LocalDate
  *   "Bot Pilot missed a day", "DAMN", then the row is deleted and the slot frees. For "You missed
  *   a day" instead, share a streak, let the bot join, and skip a day yourself.
  *
- * After each broadcast, bring the app to the foreground or open Challenges to sync.
+ * After each broadcast, bring the app to the foreground or open Challenges to sync. Both syncs
+ * are debounced by a minute (`SharedChallengeSyncer.DEBOUNCE_MS`), so within a minute of the last
+ * sync, a share or join included, the change waits for the next one.
  */
 class DebugRoomReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
