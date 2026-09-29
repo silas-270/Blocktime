@@ -34,7 +34,7 @@ enum class SyncReason {
     /** The Challenges screen opened. Debounced. */
     SCREEN_OPEN,
 
-    /** Share, look-up, join or abandon. Never debounced. */
+    /** A successful share or join, or an abandon. Never debounced. */
     USER_ACTION;
 
     /** The two triggers that fire often without anything having changed locally. */

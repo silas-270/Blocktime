@@ -354,6 +354,7 @@ class ChallengesViewModel(
                     val started = StartChallengeResult.Started(result.challenge)
                     _startResult.value = started
                     focusIfRoute(started)
+                    requestSyncAfterUserAction()
                 }
                 JoinResult.CapReached -> {
                     _roomLookup.value = RoomLookupState.Idle
@@ -376,7 +377,10 @@ class ChallengesViewModel(
         _shareState.value = ShareUiState.Working
         viewModelScope.launch {
             _shareState.value = when (val result = challengeRepository.shareChallenge(id)) {
-                is ShareResult.Shared -> ShareUiState.Shared(result.code)
+                is ShareResult.Shared -> {
+                    requestSyncAfterUserAction()
+                    ShareUiState.Shared(result.code)
+                }
                 is ShareResult.NotEligible -> ShareUiState.Error(
                     when (result.reason) {
                         ShareIneligibility.NOT_ACTIVE -> "This challenge is already over"
@@ -392,6 +396,16 @@ class ChallengesViewModel(
 
     fun clearShareState() {
         _shareState.value = ShareUiState.Idle
+    }
+
+    /**
+     * A successful share or join asks for a `USER_ACTION` sync (docs/shared-challenges.md "Sync
+     * moments"). The server has just answered, so the crew caption must read "Synced just now";
+     * without a sync it kept the time of the last one, often the screen-open sync minutes
+     * earlier. The request is never debounced and returns at once.
+     */
+    private fun requestSyncAfterUserAction() {
+        sharedChallengeSyncer.requestSync(SyncReason.USER_ACTION)
     }
 }
 

@@ -48,13 +48,16 @@ There are no push notifications. `SharedChallengeSyncer` asks the server at exac
 | The app comes to the foreground (`CesiumGameActivity.onStart`, which covers cold start) | `FOREGROUND` | 60 s |
 | The Challenges screen opens (`ChallengesViewModel` init) | `SCREEN_OPEN` | 60 s |
 | A landing has been credited and its outcome published (`InFlightViewModel`) | `LANDING` | none |
-| Share, look-up, join and abandon | `USER_ACTION` | none |
+| A successful share or join, and abandon (`ChallengesViewModel`) | `USER_ACTION` | none |
 
 Share, look-up and join call the server directly from the repository and report the outcome to
-the reachability signal themselves. `USER_ACTION` is requested by abandon: the repository deletes
-the row and queues the room code in `pending_room_leaves`, and the sync that follows sends the
-leave (A2). It is never debounced, so the leave goes out at once when the server answers, and it
-waits in the queue when it does not (A3).
+the reachability signal themselves. A successful share or join then requests `USER_ACTION`, so
+the crew caption reads "Synced just now": without it the caption kept the time of the last sync,
+often the screen-open one minutes earlier. Abandon requests it too: the repository deletes the
+row and queues the room code in `pending_room_leaves`, and the sync that follows sends the leave
+(A2). `USER_ACTION` is never debounced, and in the `UNKNOWN` state `check()` probes rather than
+skipping, so the sync runs at once when the server answers, and a leave waits in the queue when
+it does not (A3).
 
 One sync (`syncNow`) runs to completion under a mutex, in five steps:
 

@@ -14,6 +14,7 @@ import com.silas270.blocktime.data.model.UserProfile
 import com.silas270.blocktime.data.model.VisitedGeography
 import com.silas270.blocktime.data.network.ServerReachability
 import com.silas270.blocktime.data.network.ServerState
+import com.silas270.blocktime.data.network.room.FakeRoomApi
 import com.silas270.blocktime.data.network.room.NoRoomApi
 import com.silas270.blocktime.data.network.room.RoomResult
 import com.silas270.blocktime.data.repository.AchievementsRepository
@@ -48,6 +49,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * [ChallengesViewModel]'s presentation queue and sharing actions, with the real ViewModel on a
@@ -65,6 +70,7 @@ class ChallengesViewModelTest {
         val dismissed = mutableListOf<Int>()
         var onMarkCelebrated: () -> Unit = {}
         var joinAnswer: JoinResult = JoinResult.NotFound
+        var shareAnswer: ShareResult = ShareResult.Unavailable(RoomResult.Unreachable)
         /** The pilot's own rows by room code, for [findByRoomCode]. */
         val ownRooms = mutableMapOf<String, Challenge>()
         /** How often the server look-up ran; the real repository calls RoomApi there. */
@@ -88,7 +94,7 @@ class ChallengesViewModelTest {
         override suspend fun advanceRouteChallenge(challengeId: Int, newPositionIata: String): Challenge? = null
         override fun pausedFlightStore(challengeId: Int): PausedFlightStore = throw NotImplementedError()
         override suspend fun creditEligibleFlight(destIata: String, distanceKm: Double, completedAt: Long) = Unit
-        override suspend fun shareChallenge(id: Int): ShareResult = ShareResult.Unavailable(RoomResult.Unreachable)
+        override suspend fun shareChallenge(id: Int): ShareResult = shareAnswer
         override suspend fun lookUpRoom(code: String): RoomResult<RoomState> {
             lookUps++
             return RoomResult.NotFound
@@ -107,7 +113,7 @@ class ChallengesViewModelTest {
     }
 
     private val users = object : UserRepository {
-        private val profile = MutableStateFlow<UserProfile?>(null)
+        val profile = MutableStateFlow<UserProfile?>(null)
         override fun getProfileFlow(): Flow<UserProfile?> = profile
         override suspend fun getProfile(): UserProfile? = profile.value
         override suspend fun createProfile(username: String, homeAirportIata: String) = throw NotImplementedError()
@@ -128,6 +134,17 @@ class ChallengesViewModelTest {
     private val achievements = object : AchievementsRepository {
         override suspend fun evaluateBoard(geo: VisitedGeography, history: List<FlightLog>) = AchievementBoard(emptyList(), emptyList(), emptyList())
         override suspend fun loadBoard() = AchievementBoard(emptyList(), emptyList(), emptyList())
+    }
+
+    /** A clock the test moves by hand, so "the current time" of a sync is known. */
+    private class ManualClock(var now: Long) : Clock() {
+        override fun getZone(): ZoneId = ZoneOffset.UTC
+        override fun withZone(zone: ZoneId?): Clock = this
+        override fun instant(): Instant = Instant.ofEpochMilli(now)
+    }
+
+    private companion object {
+        const val T0 = 1_700_000_000_000L
     }
 
     private val repository = FakeChallengeRepository()
@@ -299,6 +316,26 @@ class ChallengesViewModelTest {
 
         assertEquals(RoomLookupState.Error(JoinResult.AlreadyFinished), vm.roomLookup.value)
         assertEquals(0, repository.lookUps)
+    }
+
+    @Test
+    fun `S3 a share asks for a sync, so the crew caption reads the moment of the share`() = runTest(UnconfinedTestDispatcher()) {
+        val clock = ManualClock(T0)
+        users.profile.value = UserProfile(id = 1, username = "Cap", userCode = "ABC123", homeAirportIata = "ORI")
+        prefs.setOnlineFeaturesEnabled(true)
+        val server = FakeRoomApi { clock.now }
+        val reachability = ServerReachability(true, MutableStateFlow(true), prefs, { server.ping() }, backgroundScope, clock)
+        val syncer = SharedChallengeSyncer(repository, users, prefs, server, reachability, backgroundScope, clock)
+        val vm = viewModel(syncer)
+        // The screen-open sync is the last one the caption knows of.
+        assertEquals(SyncSummary.Synced(0, T0), syncer.lastSummary.value)
+
+        clock.now += 2 * 60_000L
+        repository.shareAnswer = ShareResult.Shared("ROOM42", row(1, ChallengeStatus.ACTIVE).copy(roomCode = "ROOM42"))
+        vm.shareChallenge(1)
+
+        assertEquals(ShareUiState.Shared("ROOM42"), vm.shareState.value)
+        assertEquals(SyncSummary.Synced(0, T0 + 2 * 60_000L), syncer.lastSummary.value)
     }
 
     @Test
