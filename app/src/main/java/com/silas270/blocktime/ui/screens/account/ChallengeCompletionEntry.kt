@@ -19,13 +19,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeSource
+import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.SharedOutcome
+import com.silas270.blocktime.data.model.crewSize
+import com.silas270.blocktime.data.model.isShared
+import com.silas270.blocktime.data.model.racePlacement
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
 import com.silas270.blocktime.ui.components.BadgeVariant
 import com.silas270.blocktime.ui.components.FocusBadge
 import com.silas270.blocktime.ui.components.challengeTypeLabel
+import com.silas270.blocktime.ui.screens.challenges.ordinalSuffix
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,12 +81,25 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
                     ),
                     color = inkFaint
                 )
-                FocusBadge(
-                    text = challengeTypeLabel(challenge.type),
-                    variant = BadgeVariant.Danger,
-                    style = BadgeStyle.Stamp,
-                    size = BadgeSize.Compact
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A shared row carries a second stamp (docs/shared-challenges.md "Per
+                    // type"): the pilot's place in a race, or how big the crew was for a pool.
+                    sharedStamp(challenge)?.let { stamp ->
+                        FocusBadge(
+                            text = stamp,
+                            variant = BadgeVariant.Danger,
+                            style = BadgeStyle.Stamp,
+                            size = BadgeSize.Compact
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    FocusBadge(
+                        text = challengeTypeLabel(challenge.type),
+                        variant = BadgeVariant.Danger,
+                        style = BadgeStyle.Stamp,
+                        size = BadgeSize.Compact
+                    )
+                }
             }
 
             // Row 2: challenge name (in place of LogbookEntry's ORIGIN ✈ DEST route stamp - a
@@ -112,4 +133,15 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
             }
         }
     }
+}
+
+/** "1ST" for a decided race, "CREW ×3" for a shared pool, null for a solo row. */
+private fun sharedStamp(challenge: Challenge): String? {
+    if (!challenge.isShared()) return null
+    if (challenge.type == ChallengeType.ROUTE) {
+        if (challenge.sharedOutcome !is SharedOutcome.Completed) return null
+        val place = challenge.racePlacement() ?: return null
+        return "$place${ordinalSuffix(place).uppercase(Locale.US)}"
+    }
+    return "CREW ×${challenge.crewSize()}"
 }

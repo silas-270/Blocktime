@@ -21,6 +21,15 @@
                 <action android:name="com.silas270.blocktime.SEED_ACHIEVEMENTS" />
             </intent-filter>
         </receiver>
+        <!-- The bot pilot for shared challenges against the FakeRoomApi (no ROOM_SERVER_URL);
+             see DebugRoomReceiver's KDoc for the adb commands. -->
+        <receiver
+            android:name=".data.network.room.DebugRoomReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.silas270.blocktime.DEBUG_ROOM" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

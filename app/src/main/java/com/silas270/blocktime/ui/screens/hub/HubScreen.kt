@@ -76,8 +76,13 @@ import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import androidx.compose.ui.platform.LocalContext
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
+import com.silas270.blocktime.data.model.crewSize
+import com.silas270.blocktime.data.model.isShared
+import com.silas270.blocktime.data.model.others
 import com.silas270.blocktime.data.model.progressFraction
+import com.silas270.blocktime.data.model.racePlacement
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
 import com.silas270.blocktime.ui.components.ButtonStyle
@@ -93,6 +98,7 @@ import com.silas270.blocktime.ui.components.PrimaryActionButton
 import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.components.icon
 import com.silas270.blocktime.ui.screens.challenges.challengeSubtitle
+import com.silas270.blocktime.ui.screens.challenges.ordinalSuffix
 import com.silas270.blocktime.ui.theme.Amber
 import com.silas270.blocktime.ui.theme.Border
 import com.silas270.blocktime.ui.theme.DeepNavy
@@ -593,7 +599,38 @@ private fun FocusedChallengeCard(challenge: Challenge, onExit: () -> Unit, modif
                 color = if (pct > 0) Amber else Haze.copy(alpha = 0.6f)
             )
         }
+
+        // A race says where the pilot stands and who is ahead (docs/shared-challenges.md "Per
+        // type"); a pool's team bar has no leader to name, so only a shared route gets the line.
+        raceStandingLine(challenge)?.let { line ->
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = line,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = Haze
+            )
+        }
     }
+}
+
+/**
+ * "2nd of 3 · Anna leads", or "1st of 3 · you lead", for a shared route with a crew in its
+ * cache; null for everything else. The leader is whoever of the crew still in the race has the
+ * most route progress, self's from the row, so it agrees with [racePlacement].
+ */
+private fun raceStandingLine(challenge: Challenge): String? {
+    if (!challenge.isShared() || challenge.type != ChallengeType.ROUTE) return null
+    val place = challenge.racePlacement() ?: return null
+    val others = challenge.others()
+    val crewSize = challenge.crewSize()
+    if (crewSize < 2) return null
+    val bestOther = others.maxByOrNull { it.routeProgress }
+    val leader = if (bestOther == null || challenge.progressFraction() >= bestOther.routeProgress) {
+        "you lead"
+    } else {
+        "${bestOther.username.ifBlank { bestOther.userCode }} leads"
+    }
+    return "$place${ordinalSuffix(place)} of $crewSize · $leader"
 }
 
 @Deprecated("Use FocusStatItem instead", ReplaceWith("FocusStatItem(value, label)", "com.silas270.blocktime.ui.components.FocusStatItem"))

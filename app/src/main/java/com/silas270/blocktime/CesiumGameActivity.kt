@@ -862,7 +862,7 @@ class CesiumGameActivity : GameActivity() {
                                 // ── Account / Passport ──
                                 composable(Screen.Account.route) { entry ->
                                     val viewModel: AccountViewModel = viewModel(
-                                        factory = AccountViewModelFactory(applicationContext, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, cacheDir)
+                                        factory = AccountViewModelFactory(applicationContext, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, serverReachability, cacheDir)
                                     )
                                     
                                     com.silas270.blocktime.ui.screens.account.AccountScreen(
@@ -874,7 +874,7 @@ class CesiumGameActivity : GameActivity() {
                                 // ── Settings ──
                                 composable(Screen.Settings.route) { entry ->
                                     val viewModel: AccountViewModel = viewModel(
-                                        factory = AccountViewModelFactory(applicationContext, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, cacheDir)
+                                        factory = AccountViewModelFactory(applicationContext, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, serverReachability, cacheDir)
                                     )
 
                                     com.silas270.blocktime.ui.screens.settings.SettingsScreen(

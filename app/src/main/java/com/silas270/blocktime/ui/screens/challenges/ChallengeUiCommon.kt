@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.isShared
 import com.silas270.blocktime.data.model.predefinedRoute
 import com.silas270.blocktime.data.model.progressFraction
 import com.silas270.blocktime.ui.components.ButtonSize
@@ -50,6 +51,32 @@ internal fun challengeSubtitle(challenge: Challenge): String {
     }
 }
 
+/** "1st", "2nd", "3rd", "4th", "11th", "22nd": the suffix for a race placement. */
+internal fun ordinalSuffix(n: Int): String {
+    val rem100 = n % 100
+    if (rem100 in 11..13) return "th"
+    return when (n % 10) {
+        1 -> "st"
+        2 -> "nd"
+        3 -> "rd"
+        else -> "th"
+    }
+}
+
+/**
+ * "Synced just now" / "Synced 3 min ago" / "Synced 2 h ago" for the info modal's crew section,
+ * from the last successful sync's timestamp. Minutes are the unit that matters: the crew's
+ * numbers are as fresh as the last sync, and "3 min ago" says whether to expect a change.
+ */
+internal fun syncedAgoLabel(syncedAt: Long, now: Long): String {
+    val minutes = ((now - syncedAt) / 60_000L).coerceAtLeast(0L)
+    return when {
+        minutes < 1L -> "Synced just now"
+        minutes < 60L -> "Synced $minutes min ago"
+        else -> "Synced ${minutes / 60L} h ago"
+    }
+}
+
 /** Where the challenge's next flight is headed - the itinerary's next waypoint for a predefined
  *  route, the final destination for a free-form one (which is free to get there any way it likes). */
 private fun nextStop(challenge: Challenge): String? =
@@ -92,9 +119,12 @@ internal fun AbandonConfirmModal(challenge: Challenge, onConfirm: () -> Unit, on
     ScrimCardModal(onScrimTap = onDismiss) {
         ModalTitle("ABANDON CHALLENGE?")
         Spacer(modifier = Modifier.height(8.dp))
+        // A shared row says what happens to the others (docs/shared-challenges.md, A2): the room
+        // outlives the pilot, so "removed entirely" alone would read as ending it for the crew.
+        val sharedNote = if (challenge.isShared()) " Your crew keeps the challenge; you leave the room." else ""
         Text(
             text = "\"${challenge.name}\" will be removed entirely, freeing up a challenge slot. " +
-                "This can't be undone - starting it again later begins from zero.",
+                "This can't be undone - starting it again later begins from zero." + sharedNote,
             style = MaterialTheme.typography.bodyMedium,
             color = Haze
         )

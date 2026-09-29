@@ -269,21 +269,37 @@ private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, p
         // Type and status as a plain text line under the name, not chips beside it: the chips
         // looked like buttons, and squeezed the name down to "First Cro...".
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(color = Amber)) { append(challengeTypeLabel(outcome.type)) }
-                if (isCompleted) {
-                    withStyle(SpanStyle(color = Haze)) { append("  ·  ") }
-                    withStyle(SpanStyle(color = Success)) { append("COMPLETED") }
-                }
-            },
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 0.5.sp
-            ),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 20.dp + Spacing.Small)
-        )
+        ) {
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Amber)) { append(challengeTypeLabel(outcome.type)) }
+                    if (isCompleted) {
+                        withStyle(SpanStyle(color = Haze)) { append("  ·  ") }
+                        withStyle(SpanStyle(color = Success)) { append("COMPLETED") }
+                    }
+                },
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp
+                )
+            )
+            // A team bar says whose it is (docs/shared-challenges.md "Landing"): the progress
+            // shown is the crew's, and without the badge a small own contribution looks like a
+            // big jump.
+            if (outcome.isShared) {
+                Spacer(modifier = Modifier.width(Spacing.Small))
+                FocusBadge(
+                    text = "CREW ×${outcome.crewSize}",
+                    variant = BadgeVariant.Neutral,
+                    style = BadgeStyle.Translucent,
+                    size = BadgeSize.Compact
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(10.dp))
 

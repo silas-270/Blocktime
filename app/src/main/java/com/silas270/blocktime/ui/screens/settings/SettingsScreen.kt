@@ -37,8 +37,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.data.model.ThemeMode
+import com.silas270.blocktime.data.network.ServerState
 import com.silas270.blocktime.ui.components.BackTopAppBar
 import com.silas270.blocktime.ui.components.SectionHeader
+import com.silas270.blocktime.ui.screens.challenges.InfoModal
 import com.silas270.blocktime.ui.theme.Haze
 import com.silas270.blocktime.ui.theme.Midnight
 import com.silas270.blocktime.ui.theme.Spacing
@@ -64,6 +66,8 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val networkMode by viewModel.networkMode.collectAsState()
     val offlineDataSaverEnabled by viewModel.offlineDataSaverEnabled.collectAsState()
+    val onlineFeaturesEnabled by viewModel.onlineFeaturesEnabled.collectAsState()
+    val serverState by viewModel.serverState.collectAsState()
     val systemInDarkTheme = isSystemInDarkTheme()
     val isLightMode = when (themeMode) {
         ThemeMode.LIGHT -> true
@@ -76,6 +80,9 @@ fun SettingsScreen(
     var showChangeHomeBase by remember { mutableStateOf(false) }
     var showWelcomeHome by remember { mutableStateOf(false) }
     var showCredits by remember { mutableStateOf(false) }
+    // Shown once per visit when the switch goes from off to on (Y5): what leaves the phone is
+    // said at the moment the pilot asks for it, not buried in a settings subtitle.
+    var showSharedChallengesInfo by remember { mutableStateOf(false) }
     var homeBaseSetAirport by remember { mutableStateOf<Airport?>(null) }
     val homeBaseSearchQuery by viewModel.homeBaseSearchQuery.collectAsState()
     val homeBaseSearchResults by viewModel.homeBaseSearchResults.collectAsState()
@@ -139,6 +146,20 @@ fun SettingsScreen(
                         onToggle = viewModel::setOfflineDataSaverEnabled
                     )
                 }
+                // Absent without a server in the build (docs/shared-challenges.md "Two
+                // signals"): a switch that could never do anything is worse than none.
+                if (serverState != ServerState.NOT_CONFIGURED) {
+                    item {
+                        OnlineFeaturesPreferenceRow(
+                            enabled = onlineFeaturesEnabled,
+                            serverState = serverState,
+                            onToggle = { checked ->
+                                if (checked && !onlineFeaturesEnabled) showSharedChallengesInfo = true
+                                viewModel.setOnlineFeaturesEnabled(checked)
+                            }
+                        )
+                    }
+                }
 
                 item { SectionHeader(title = "HOME BASE") }
                 item {
@@ -165,6 +186,16 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
+        if (showSharedChallengesInfo) {
+            InfoModal(
+                title = "SHARED CHALLENGES",
+                message = "With this on, the pilots in a room you share or join see your pilot name, " +
+                    "your pilot code and your progress on that challenge. Nothing else leaves your " +
+                    "phone: not your logbook, not your flight times. Turn it off any time.",
+                onDismiss = { showSharedChallengesInfo = false }
+            )
         }
 
         if (showReturnHomeModal) {

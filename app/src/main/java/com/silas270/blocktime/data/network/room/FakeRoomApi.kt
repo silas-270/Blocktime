@@ -166,6 +166,9 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
     /** The room as the server holds it, or null. */
     fun room(code: String): RoomState? = synchronized(lock) { rooms[code] }
 
+    /** Every room the fake holds, for the debug receiver that plays the bot in all of them. */
+    fun roomCodes(): List<String> = synchronized(lock) { rooms.keys.toList() }
+
     /** Puts a whole room in place, as it is, for tests that start from a prepared state. */
     fun seedRoom(state: RoomState) {
         synchronized(lock) { rooms[state.code] = state }

@@ -12,6 +12,8 @@ import com.silas270.blocktime.data.model.Tour
 import com.silas270.blocktime.data.model.HomeBaseCooldown
 import com.silas270.blocktime.data.network.NetworkMode
 import com.silas270.blocktime.data.network.OfflineModeController
+import com.silas270.blocktime.data.network.ServerReachability
+import com.silas270.blocktime.data.network.ServerState
 import com.silas270.blocktime.data.repository.PilotProgressRepository
 import com.silas270.blocktime.data.repository.AirportRepository
 import com.silas270.blocktime.data.repository.FlightLogRepository
@@ -127,6 +129,7 @@ class AccountViewModel(
     private val preferencesRepository: PreferencesRepository,
     private val pilotProgressRepository: PilotProgressRepository,
     private val offlineModeController: OfflineModeController,
+    private val serverReachability: ServerReachability,
     private val cacheDir: java.io.File
 ) : ViewModel() {
 
@@ -231,6 +234,15 @@ class AccountViewModel(
 
     fun setOfflineDataSaverEnabled(enabled: Boolean) {
         offlineModeController.setDataSaverEnabled(enabled)
+    }
+
+    /** The "Shared challenges" switch and the server state its subtitle reads, both owned by
+     *  [ServerReachability] so the row and the sharing surfaces can never disagree. */
+    val serverState: StateFlow<ServerState> = serverReachability.state
+    val onlineFeaturesEnabled: StateFlow<Boolean> = serverReachability.optIn
+
+    fun setOnlineFeaturesEnabled(enabled: Boolean) {
+        serverReachability.setOnlineFeaturesEnabled(enabled)
     }
 
     // The logbook used to render from a Pager here while its headers were computed from
@@ -485,12 +497,13 @@ class AccountViewModelFactory(
     private val preferencesRepository: PreferencesRepository,
     private val pilotProgressRepository: PilotProgressRepository,
     private val offlineModeController: OfflineModeController,
+    private val serverReachability: ServerReachability,
     private val cacheDir: java.io.File
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(AccountViewModel::class.java)) {
-            return AccountViewModel(context, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, cacheDir) as T
+            return AccountViewModel(context, userRepository, flightLogRepository, airportRepository, preferencesRepository, pilotProgressRepository, offlineModeController, serverReachability, cacheDir) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

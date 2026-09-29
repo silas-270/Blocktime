@@ -185,3 +185,26 @@ val RankCommander               = Color(0xFFD4AF37)   // Gold
 val RankCaptain                 = Color(0xFF10B981)   // Emerald Green
 val RankFirstOfficer            = Color(0xFFA89886)   // Sand / Taupe
 val ChallengeGold               = Color(0xFFFFD700)
+
+// ── Shared challenges: the crew ──────────────────────────────────────────────
+/**
+ * One colour per pilot in a room, indexed by `ParticipantSnapshot.colorIndex` (join order, the
+ * creator is 0). Theme-independent like the medals: a crew member keeps one colour in the team
+ * bar, the crew list and the set checklist whichever theme the screen is in, and every hue is
+ * distinct from the others on both the dark leather and the light sky. Amber is deliberately not
+ * in the list, because the pilot's own slice is always Amber (docs/shared-challenges.md "Per
+ * type"), and a crew member in the accent colour would read as self.
+ */
+val ParticipantPalette: List<Color> = listOf(
+    Color(0xFF4FB3E8),   // Sky blue
+    Color(0xFF3ECF8E),   // Mint green
+    Color(0xFFE879B2),   // Rose pink
+    Color(0xFFB08CFF),   // Lavender
+    Color(0xFFFF8A5B),   // Coral
+    Color(0xFF7FDBDB),   // Aqua
+)
+
+/** The colour a crew member is drawn in: self is always [Amber], everyone else takes their
+ *  palette entry, wrapping past the palette's end rather than failing on a large room. */
+fun participantColor(colorIndex: Int, isSelf: Boolean): Color =
+    if (isSelf) Amber else ParticipantPalette[Math.floorMod(colorIndex, ParticipantPalette.size)]

@@ -25,18 +25,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FlightTakeoff
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
@@ -44,16 +49,36 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.CuratedChallengeSets
+import com.silas270.blocktime.data.model.ParticipantSnapshot
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.model.PredefinedRoute
+import com.silas270.blocktime.data.model.PredefinedRouteCatalog
+import com.silas270.blocktime.data.model.ROOM_CODE_ALPHABET
+import com.silas270.blocktime.data.model.ROOM_CODE_LENGTH
+import com.silas270.blocktime.data.model.RoomDefinition
+import com.silas270.blocktime.data.model.RoomState
+import com.silas270.blocktime.data.model.SharedOutcome
+import com.silas270.blocktime.data.model.crew
+import com.silas270.blocktime.data.model.displayProgressFraction
+import com.silas270.blocktime.data.model.isShared
 import com.silas270.blocktime.data.model.predefinedRoute
+import com.silas270.blocktime.data.model.progressSegments
+import com.silas270.blocktime.data.model.racePlacement
 import com.silas270.blocktime.data.model.resolveSetMemberProgress
 import com.silas270.blocktime.data.model.CuratedChallengeCatalog
 import com.silas270.blocktime.data.model.progressFraction
+import com.silas270.blocktime.data.repository.JoinResult
+import com.silas270.blocktime.data.repository.shareIneligibility
+import com.silas270.blocktime.domain.OnlineFeatureAvailability
+import com.silas270.blocktime.domain.onlineAvailability
+import com.silas270.blocktime.domain.onlineHint
 import androidx.compose.foundation.layout.PaddingValues
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
@@ -61,6 +86,7 @@ import com.silas270.blocktime.ui.components.BadgeVariant
 import com.silas270.blocktime.ui.components.ButtonSize
 import com.silas270.blocktime.ui.components.ButtonStyle
 import com.silas270.blocktime.ui.components.ButtonVariant
+import com.silas270.blocktime.ui.components.CaptionLabel
 import com.silas270.blocktime.ui.components.CardVariant
 import com.silas270.blocktime.ui.components.FocusBadge
 import com.silas270.blocktime.ui.components.FocusButton
@@ -72,6 +98,8 @@ import com.silas270.blocktime.ui.components.ModalTitle
 import com.silas270.blocktime.ui.components.PrimaryActionButton
 import com.silas270.blocktime.ui.components.SecondaryActionButton
 import com.silas270.blocktime.ui.components.ScrimCardModal
+import com.silas270.blocktime.ui.components.SectionHeader
+import com.silas270.blocktime.ui.components.SegmentedProgressBar
 import com.silas270.blocktime.ui.components.SetMemberChecklist
 import com.silas270.blocktime.ui.components.challengeTypeDescription
 import com.silas270.blocktime.ui.components.challengeTypeIcon
@@ -84,30 +112,44 @@ import com.silas270.blocktime.ui.theme.Haze
 import com.silas270.blocktime.ui.theme.OffWhite
 import com.silas270.blocktime.ui.theme.Slate
 import com.silas270.blocktime.ui.theme.Spacing
+import com.silas270.blocktime.ui.theme.participantColor
 
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.ui.screens.flightsearch.OriginSearchPanel
 import com.silas270.blocktime.ui.viewmodel.challenges.ChallengesViewModel
+import com.silas270.blocktime.ui.viewmodel.challenges.RoomLookupState
+import com.silas270.blocktime.ui.viewmodel.challenges.ShareUiState
 import com.silas270.blocktime.ui.viewmodel.challenges.formatKm
+import java.time.LocalDate
+import java.util.Locale
 
 private sealed interface PickerStep {
     object TypeGrid : PickerStep
     data class CuratedList(val type: ChallengeType) : PickerStep
     data class CreateCustom(val type: ChallengeType) : PickerStep
+
+    /** The "Have a code?" preview of a room found by the look-up (docs/shared-challenges.md, J4). */
+    data class JoinPreview(val room: RoomState) : PickerStep
 }
 
 /**
  * Opened by tapping an empty slot:
- * 1. Shows a 2x2 grid of challenge types.
+ * 1. Shows a 2x2 grid of challenge types, and under it the "Have a code?" field that joins a
+ *    shared challenge (docs/shared-challenges.md "Joining"), present only while sharing is on.
  * 2. Selecting a type lists the curated challenges for that type, with a "Create your own" button
  *    at the bottom (for Route, Distance, and Streak).
  * 3. Tapping "Create your own" transitions directly within the modal to that type's dedicated
  *    custom creation form.
+ * 4. A successful look-up transitions to the room's preview, whose JOIN is published as a start,
+ *    so the same effect that closes the picker after a start closes it after a join.
  */
 @Composable
 internal fun ChallengePickerModal(
@@ -115,6 +157,16 @@ internal fun ChallengePickerModal(
     onDismiss: () -> Unit
 ) {
     var step by remember { mutableStateOf<PickerStep>(PickerStep.TypeGrid) }
+    val serverState by viewModel.serverState.collectAsState()
+    val roomLookup by viewModel.roomLookup.collectAsState()
+    val availability = onlineAvailability(serverState)
+
+    // A found room opens its preview. The preview keeps its room while the join runs or fails,
+    // so a failed join stays on the preview with its reason rather than falling back to the grid.
+    LaunchedEffect(roomLookup) {
+        val lookup = roomLookup
+        if (lookup is RoomLookupState.Found) step = PickerStep.JoinPreview(lookup.room)
+    }
 
     // One level up the wizard - what the in-card back arrows do, and (below) what system back does.
     fun stepBack() {
@@ -125,6 +177,10 @@ internal fun ChallengePickerModal(
                 viewModel.clearRouteSearch()
                 step = PickerStep.CuratedList(current.type)
             }
+            is PickerStep.JoinPreview -> {
+                viewModel.clearRoomLookup()
+                step = PickerStep.TypeGrid
+            }
         }
     }
 
@@ -133,6 +189,7 @@ internal fun ChallengePickerModal(
     // back arrow on screen, which steps back one level, so it only closes from the first step.
     ScrimCardModal(onScrimTap = {
         viewModel.clearRouteSearch()
+        viewModel.clearRoomLookup()
         onDismiss()
     }) {
         // Composed after ScrimCardModal's own BackHandler, so it takes priority while enabled.
@@ -182,6 +239,29 @@ internal fun ChallengePickerModal(
                         )
                     }
                 }
+
+                // Absent, not dimmed, without sharing (J1): the pilot has not asked for anything
+                // online, so nothing online is offered.
+                if (availability != OnlineFeatureAvailability.HIDDEN) {
+                    Spacer(modifier = Modifier.height(Spacing.Medium))
+                    HorizontalDivider(color = Border.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(Spacing.Medium))
+                    JoinRoomRow(
+                        availability = availability,
+                        lookup = roomLookup,
+                        onLookUp = viewModel::lookUpRoom
+                    )
+                }
+            }
+
+            is PickerStep.JoinPreview -> {
+                JoinPreviewStep(
+                    room = current.room,
+                    availability = availability,
+                    lookup = roomLookup,
+                    onBack = { stepBack() },
+                    onJoin = { viewModel.joinRoom(current.room.code) }
+                )
             }
 
             is PickerStep.CuratedList -> {
@@ -299,6 +379,183 @@ internal fun ChallengePickerModal(
             }
         }
     }
+}
+
+/**
+ * "Have a code?" under the type grid (docs/shared-challenges.md "Joining", J2, J3, J7 to J12).
+ * The field takes only the room alphabet in upper case and stops at six characters, so what is
+ * typed is a code or nothing; the button and the search key both look it up. Below, one caption
+ * says why the field is dimmed or why the last look-up failed.
+ */
+@Composable
+private fun JoinRoomRow(
+    availability: OnlineFeatureAvailability,
+    lookup: RoomLookupState,
+    onLookUp: (String) -> Unit
+) {
+    var code by remember { mutableStateOf("") }
+    val online = availability == OnlineFeatureAvailability.ENABLED
+    val canLookUp = online && code.length == ROOM_CODE_LENGTH && lookup !is RoomLookupState.Loading
+
+    CaptionLabel(text = "HAVE A CODE?")
+    Spacer(modifier = Modifier.height(Spacing.Small))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Small),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = code,
+            onValueChange = { raw ->
+                code = raw.uppercase(Locale.US).filter { it in ROOM_CODE_ALPHABET }.take(ROOM_CODE_LENGTH)
+            },
+            placeholder = { Text("ABC234", color = Haze.copy(alpha = 0.5f)) },
+            singleLine = true,
+            enabled = online,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Ascii,
+                capitalization = KeyboardCapitalization.Characters,
+                imeAction = ImeAction.Search
+            ),
+            keyboardActions = KeyboardActions(onSearch = { if (canLookUp) onLookUp(code) }),
+            modifier = Modifier.weight(1f),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Slate,
+                unfocusedContainerColor = DeepNavy,
+                disabledContainerColor = DeepNavy,
+                cursorColor = Amber,
+                focusedBorderColor = Amber,
+                unfocusedBorderColor = Border.copy(alpha = 0.3f),
+                disabledBorderColor = Border.copy(alpha = 0.3f),
+                focusedTextColor = OffWhite,
+                unfocusedTextColor = OffWhite,
+                disabledTextColor = Haze,
+                disabledPlaceholderColor = Haze.copy(alpha = 0.3f)
+            )
+        )
+        FocusButton(
+            text = "LOOK UP",
+            onClick = { onLookUp(code) },
+            variant = ButtonVariant.Secondary,
+            style = ButtonStyle.Filled,
+            size = ButtonSize.Compact,
+            enabled = canLookUp,
+            fillMaxWidth = false
+        )
+    }
+    val hint = onlineHint(availability)
+        ?: (lookup as? RoomLookupState.Error)?.let { joinErrorText(it.reason) }
+    if (hint != null) {
+        Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+        CaptionLabel(text = hint)
+    }
+}
+
+/** The join's reasons in the pilot's words (docs/shared-challenges.md "Joining"). */
+private fun joinErrorText(reason: JoinResult): String = when (reason) {
+    JoinResult.NotFound -> "No challenge with that code"
+    JoinResult.RoomClosed -> "This challenge is already over"
+    JoinResult.RaceLocked -> "The race has already started"
+    JoinResult.RoomFull -> "This crew is full"
+    JoinResult.UnknownTemplate -> "Update Blocktime to join this challenge"
+    is JoinResult.AlreadyJoined -> "You are already in this challenge"
+    JoinResult.AlreadyFinished -> "You already finished this challenge"
+    is JoinResult.Unavailable -> "Server not reachable, try again"
+    // Both are published as a start result, never as a look-up error; named here so the `when`
+    // stays exhaustive when the result set grows.
+    JoinResult.CapReached -> "Your challenge slots are full"
+    is JoinResult.Joined -> "Joined"
+}
+
+/**
+ * The room as the server holds it, before the pilot commits (J4): what it is, what it takes, who
+ * is in it, and the two warnings a join can carry. A race that has started cannot be joined (J8),
+ * so the button is dimmed; a running streak can, but joining drops the group minimum to zero
+ * (J9), so it warns instead.
+ */
+@Composable
+private fun JoinPreviewStep(
+    room: RoomState,
+    availability: OnlineFeatureAvailability,
+    lookup: RoomLookupState,
+    onBack: () -> Unit,
+    onJoin: () -> Unit
+) {
+    val definition = room.definition
+    val present = room.participants.filter { !it.left }
+    val raceStarted = definition.type == ChallengeType.ROUTE &&
+        present.any { it.routeProgress > 0f || it.legIndex > 0 }
+    val streakRunning = definition.type == ChallengeType.STREAK && present.any { it.streakDays > 0 }
+    val today = remember { LocalDate.now() }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PickerBackButton(contentDescription = "Back to types", onClick = onBack)
+        ModalTitle(definition.name.uppercase(Locale.US))
+    }
+    Spacer(modifier = Modifier.height(Spacing.Small))
+    FocusBadge(
+        text = challengeTypeLabel(definition.type),
+        variant = BadgeVariant.Primary,
+        style = BadgeStyle.Translucent,
+        size = BadgeSize.Compact
+    )
+    if (definition.description.isNotBlank()) {
+        Spacer(modifier = Modifier.height(Spacing.Small))
+        Text(
+            text = definition.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = Haze
+        )
+    }
+    Spacer(modifier = Modifier.height(Spacing.Medium))
+    FocusInfoRow(label = "TARGET", value = roomTargetLine(definition))
+
+    Spacer(modifier = Modifier.height(Spacing.Medium))
+    CrewSection(lines = room.crewLines(today), code = null)
+
+    Spacer(modifier = Modifier.height(Spacing.Medium))
+    val joinable = !raceStarted && availability == OnlineFeatureAvailability.ENABLED && lookup !is RoomLookupState.Loading
+    FocusButton(
+        text = "JOIN CHALLENGE",
+        onClick = onJoin,
+        variant = ButtonVariant.Primary,
+        style = ButtonStyle.Filled,
+        size = ButtonSize.Compact,
+        enabled = joinable
+    )
+    val hint = when {
+        raceStarted -> "The race has already started"
+        lookup is RoomLookupState.Error -> joinErrorText(lookup.reason)
+        streakRunning -> "Joining resets the group streak"
+        else -> onlineHint(availability)
+    }
+    if (hint != null) {
+        Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+        CaptionLabel(text = hint)
+    }
+}
+
+/** "STR → PEK · 5 legs" / "6 members" / "6,200 mi" / "7 days": what the room is asking for. */
+private fun roomTargetLine(definition: RoomDefinition): String = when (definition.type) {
+    ChallengeType.ROUTE ->
+        definition.predefinedRouteId
+            ?.let { PredefinedRouteCatalog.find(it) }
+            ?.let { "${it.waypoints.first()} → ${it.waypoints.last()} · ${it.legCount} legs" }
+            ?: "${definition.originIata ?: "?"} → ${definition.destIata ?: "?"}"
+    ChallengeType.SET_COMPLETION -> {
+        val members = definition.setCatalogId?.let { CuratedChallengeSets.find(it) }?.members?.size ?: 0
+        "$members members"
+    }
+    ChallengeType.DISTANCE -> formatKm(definition.targetDistanceKm ?: 0.0)
+    ChallengeType.STREAK -> "${definition.targetDays ?: 0} days"
 }
 
 /**
@@ -565,14 +822,30 @@ private fun CustomStreakModalForm(onCreate: (Int) -> Unit) {
  * Opened by tapping a filled slot. Route challenges get a "continue" action (they need an actual
  * scoped flight); Distance and Set-completion credit passively from any eligible flight, so for
  * those there is nothing to continue - only progress to read and the option to abandon.
+ *
+ * Shared rows (docs/shared-challenges.md "Sharing", S1 to S7) add the crew: a segmented team bar
+ * for a pool, the crew list with each pilot's figure, the room code with copy and share, and a
+ * line saying how fresh the crew's numbers are. An unshared, fresh, active row offers "SHARE
+ * CHALLENGE" while sharing is on; the modal stays open and re-renders with the code once the row
+ * updates through the slot flow. A terminal row is read-only (A6): the presentation is the only
+ * way out, so there is nothing to continue, pause or abandon, only CLOSE.
+ *
+ * Holds no state of its own: [challenge] is resolved by the screen from the live slot list on
+ * every composition (Y11), so a sync that changes the row changes this modal.
  */
 @Composable
 internal fun ChallengeInfoModal(
     challenge: Challenge,
     isFocused: Boolean,
+    availability: OnlineFeatureAvailability,
+    shareState: ShareUiState,
+    syncedAgo: String?,
     onContinue: () -> Unit,
     onPause: () -> Unit,
     onAbandon: () -> Unit,
+    onShare: () -> Unit,
+    onCopyCode: (String) -> Unit,
+    onShareCode: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     ScrimCardModal(onScrimTap = onDismiss) {
@@ -590,13 +863,23 @@ internal fun ChallengeInfoModal(
             )
         }
 
+        val shared = challenge.isShared()
+        val active = challenge.status == ChallengeStatus.ACTIVE
+        // A pool's bar is split by who earned what; a race and a solo row keep the plain bar.
+        // Without a cache the segments are empty and the plain bar shows the team fraction,
+        // which then collapses to the pilot's own.
+        val segments = if (shared && challenge.type != ChallengeType.ROUTE) challenge.progressSegments() else emptyList()
         Spacer(modifier = Modifier.height(Spacing.Medium))
-        ChallengeProgressBar(progress = challenge.progressFraction(), height = 12.dp)
+        if (segments.isNotEmpty()) {
+            SegmentedProgressBar(segments = segments, height = 12.dp)
+        } else {
+            ChallengeProgressBar(progress = challenge.displayProgressFraction(), height = 12.dp)
+        }
         Spacer(modifier = Modifier.height(Spacing.Medium))
 
         FocusInfoRow(
             label = "PROGRESS",
-            value = "${(challenge.progressFraction() * 100).toInt()}%"
+            value = "${(challenge.displayProgressFraction() * 100).toInt()}%"
         )
         FocusInfoRow(
             label = "STATUS",
@@ -620,8 +903,60 @@ internal fun ChallengeInfoModal(
             RouteLegList(route = route, legIndex = challenge.legIndex)
         }
 
+        if (shared) {
+            val today = remember { LocalDate.now() }
+            Spacer(modifier = Modifier.height(Spacing.Medium))
+            CrewSection(
+                lines = challenge.crewLines(today),
+                code = challenge.roomCode,
+                onCopyCode = onCopyCode,
+                onShareCode = onShareCode,
+                // A room the server no longer knows keeps its cached crew but says so (P8); the
+                // rest of the time the line is the sync age, or why there is no sync right now.
+                caption = if (challenge.roomState?.room?.roomGone == true) {
+                    "Room closed · continuing solo"
+                } else {
+                    syncedAgo ?: onlineHint(availability)
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(Spacing.Medium))
-        if (challenge.type == ChallengeType.ROUTE) {
+
+        // S1 hides the button, S2 dims it with the reason, S3 offers it, S4 dims it because the
+        // row has moved, S5 replaces it with the crew above, S7 is the read-only branch below.
+        if (active && !shared && availability != OnlineFeatureAvailability.HIDDEN) {
+            val fresh = challenge.shareIneligibility() == null
+            FocusButton(
+                text = "SHARE CHALLENGE",
+                onClick = onShare,
+                variant = ButtonVariant.Secondary,
+                style = ButtonStyle.Filled,
+                size = ButtonSize.Compact,
+                icon = Icons.Outlined.Share,
+                enabled = fresh && availability == OnlineFeatureAvailability.ENABLED && shareState !is ShareUiState.Working
+            )
+            val hint = when {
+                !fresh -> "Only a fresh challenge can be shared"
+                shareState is ShareUiState.Error -> shareState.message
+                else -> onlineHint(availability)
+            }
+            if (hint != null) {
+                Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+                CaptionLabel(text = hint)
+            }
+            Spacer(modifier = Modifier.height(Spacing.Small))
+        }
+
+        if (!active) {
+            FocusButton(
+                text = "CLOSE",
+                onClick = onDismiss,
+                variant = ButtonVariant.Primary,
+                style = ButtonStyle.Filled,
+                size = ButtonSize.Compact
+            )
+        } else if (challenge.type == ChallengeType.ROUTE) {
             // onContinue resumes the paused leg when there is one and books a fresh leg otherwise,
             // so the label says which of the two is about to happen.
             FocusButton(
@@ -684,6 +1019,232 @@ internal fun ChallengeInfoModal(
                 )
             }
         }
+    }
+}
+
+// ── The crew (docs/shared-challenges.md "Per type") ────────────────────────────────────────
+
+/** How a streak pilot stands, from their own flag and their last credited day. */
+private enum class StreakState { ALIVE, AT_RISK, BROKEN }
+
+/** One line of the crew list: who, whether that is this pilot, and the figure the room's type
+ *  scores by, with a streak's state beside it. */
+private data class CrewLine(
+    val participant: ParticipantSnapshot,
+    val isSelf: Boolean,
+    val figure: String,
+    val streakState: StreakState?
+)
+
+/**
+ * The crew of a shared row, self first, in join order, leavers last, as [crew] orders them. Self's
+ * figures come from the row and never from the cached self snapshot (SharedProgress.kt): the row
+ * is credited at landing and the snapshot only later, so the cached copy is the stale one. The
+ * snapshot lends self only its name and colour.
+ */
+private fun Challenge.crewLines(today: LocalDate): List<CrewLine> {
+    val cache = roomState ?: return emptyList()
+    val standings = raceStandings()
+    return crew().map { participant ->
+        val isSelf = participant.userCode == cache.selfCode
+        val snapshot = if (isSelf) {
+            participant.copy(
+                positionIata = positionIata,
+                legIndex = legIndex,
+                routeProgress = progressFraction(),
+                visitedMembers = visitedSetMembers,
+                distanceKm = cumulativeDistanceKm,
+                streakDays = streakDays,
+                lastFlownDay = lastFlownDay,
+                streakAlive = (sharedOutcome as? SharedOutcome.Failed)?.bySelf != true
+            )
+        } else {
+            participant
+        }
+        val rank = if (isSelf) racePlacement() else standings.indexOf(participant.userCode).takeIf { it >= 0 }?.plus(1)
+        crewLine(type, snapshot, isSelf, rank, today)
+    }
+}
+
+/**
+ * The race's order for the crew list, winner first once the room is decided, otherwise by route
+ * progress among the pilots still in it, self's progress from the row, ties by join order. The
+ * same rule [racePlacement] applies to self, applied to everyone.
+ */
+private fun Challenge.raceStandings(): List<String> {
+    if (type != ChallengeType.ROUTE) return emptyList()
+    val cache = roomState ?: return emptyList()
+    (sharedOutcome as? SharedOutcome.Completed)?.placements?.takeIf { it.isNotEmpty() }?.let { return it }
+    return crew()
+        .filter { !it.left }
+        .map { participant ->
+            val progress = if (participant.userCode == cache.selfCode) progressFraction() else participant.routeProgress
+            Triple(participant.userCode, progress, participant.colorIndex)
+        }
+        .sortedWith(compareByDescending<Triple<String, Float, Int>> { it.second }.thenBy { it.third })
+        .map { it.first }
+}
+
+/** The crew of a room the pilot is not in yet (the join preview): nobody is self, leavers last. */
+private fun RoomState.crewLines(today: LocalDate): List<CrewLine> {
+    val (left, present) = participants.partition { it.left }
+    val standings = present
+        .sortedWith(compareByDescending<ParticipantSnapshot> { it.routeProgress }.thenBy { it.colorIndex })
+        .map { it.userCode }
+    return (present.sortedBy { it.colorIndex } + left.sortedBy { it.colorIndex }).map { participant ->
+        val rank = standings.indexOf(participant.userCode).takeIf { it >= 0 }?.plus(1)
+        crewLine(definition.type, participant, isSelf = false, rank = rank, today = today)
+    }
+}
+
+private fun crewLine(
+    type: ChallengeType,
+    participant: ParticipantSnapshot,
+    isSelf: Boolean,
+    rank: Int?,
+    today: LocalDate
+): CrewLine {
+    val figure = when (type) {
+        ChallengeType.ROUTE -> listOfNotNull(participant.positionIata, rank?.let { "#$it" }).joinToString(" ")
+        ChallengeType.SET_COMPLETION -> "${participant.visitedMembers.size} visited"
+        ChallengeType.DISTANCE -> formatKm(participant.distanceKm)
+        ChallengeType.STREAK -> if (participant.streakDays == 1) "1 day" else "${participant.streakDays} days"
+    }
+    val streakState = if (type == ChallengeType.STREAK) streakStateOf(participant, today) else null
+    return CrewLine(participant, isSelf, figure, streakState)
+}
+
+/** Broken by the owner's own flag; alive while the last credited day is today or yesterday
+ *  (or ahead, on a clock that moved), the same slack `Challenge.currentStreak` gives; at risk
+ *  otherwise, which includes a pilot who has not flown at all yet. */
+private fun streakStateOf(participant: ParticipantSnapshot, today: LocalDate): StreakState {
+    if (!participant.streakAlive) return StreakState.BROKEN
+    val last = participant.lastFlownDay?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    return if (last != null && !last.isBefore(today.minusDays(1))) StreakState.ALIVE else StreakState.AT_RISK
+}
+
+/**
+ * "CREW", the list, then (for the pilot's own row) the room code with copy and share, and a
+ * caption under it. The join preview passes no [code]: the pilot just typed it.
+ */
+@Composable
+private fun CrewSection(
+    lines: List<CrewLine>,
+    code: String?,
+    onCopyCode: (String) -> Unit = {},
+    onShareCode: (String) -> Unit = {},
+    caption: String? = null
+) {
+    SectionHeader(title = "CREW")
+    Spacer(modifier = Modifier.height(Spacing.Small))
+    if (lines.isEmpty()) {
+        // A shared row whose room was never seen: still shared, crew unknown, not "nobody".
+        Text(
+            text = "Crew not synced yet",
+            style = MaterialTheme.typography.bodySmall,
+            color = Haze
+        )
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            lines.forEach { line -> CrewRow(line) }
+        }
+    }
+    if (code != null) {
+        Spacer(modifier = Modifier.height(Spacing.Medium))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FocusBadge(
+                text = code,
+                variant = BadgeVariant.Primary,
+                style = BadgeStyle.Outlined,
+                size = BadgeSize.Standard
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = { onCopyCode(code) }) {
+                Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy code",
+                    tint = Amber,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = { onShareCode(code) }) {
+                Icon(
+                    imageVector = Icons.Outlined.Share,
+                    contentDescription = "Share code",
+                    tint = Amber,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+    if (caption != null) {
+        Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+        CaptionLabel(text = caption)
+    }
+}
+
+/** Colour dot, name, `#CODE`, then the figure right-aligned so the column reads at a glance.
+ *  A pilot who left stays listed, faded: their contribution to a pool is still in the bar. */
+@Composable
+private fun CrewRow(line: CrewLine) {
+    val participant = line.participant
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (participant.left) 0.45f else 1f),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(participantColor(participant.colorIndex, line.isSelf))
+        )
+        Spacer(modifier = Modifier.width(Spacing.Small))
+        Column(modifier = Modifier.weight(1f)) {
+            val name = participant.username.ifBlank { participant.userCode }
+            Text(
+                text = if (line.isSelf) "$name (you)" else name,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = OffWhite,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "#${participant.userCode}",
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = Haze
+            )
+        }
+        Spacer(modifier = Modifier.width(Spacing.Small))
+        line.streakState?.let { state ->
+            FocusBadge(
+                text = when (state) {
+                    StreakState.ALIVE -> "ALIVE"
+                    StreakState.AT_RISK -> "AT RISK"
+                    StreakState.BROKEN -> "BROKEN"
+                },
+                variant = when (state) {
+                    StreakState.ALIVE -> BadgeVariant.Success
+                    StreakState.AT_RISK -> BadgeVariant.Primary
+                    StreakState.BROKEN -> BadgeVariant.Danger
+                },
+                style = BadgeStyle.Translucent,
+                size = BadgeSize.Compact
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+            text = line.figure,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            color = OffWhite
+        )
     }
 }
 

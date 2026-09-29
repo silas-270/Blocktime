@@ -24,6 +24,7 @@ import com.silas270.blocktime.data.repository.ShareResult
 import com.silas270.blocktime.data.repository.SharedChallengeSyncer
 import com.silas270.blocktime.data.repository.StartChallengeResult
 import com.silas270.blocktime.data.repository.SyncReason
+import com.silas270.blocktime.data.repository.SyncSummary
 import com.silas270.blocktime.data.repository.asJoinFailure
 import com.silas270.blocktime.domain.AirportSearchController
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +78,9 @@ class ChallengesViewModel(
     /** What the sharing surfaces ask before offering an online action (docs/shared-challenges.md
      *  "Two signals"); `onlineAvailability(state)` turns it into hidden, dimmed or enabled. */
     val serverState: StateFlow<ServerState> = serverReachability.state
+
+    /** What the last sync did, for the info modal's "Synced 3 min ago" line under the crew. */
+    val lastSyncSummary: StateFlow<SyncSummary?> = sharedChallengeSyncer.lastSummary
 
     /** What the three slots actually render: ACTIVE challenges, plus any COMPLETED-but-not-yet-
      *  celebrated one (docs/challenges.md) - so a just-finished challenge keeps its slot until its

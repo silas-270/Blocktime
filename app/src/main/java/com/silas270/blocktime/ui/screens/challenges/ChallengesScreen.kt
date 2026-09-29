@@ -1,5 +1,8 @@
 package com.silas270.blocktime.ui.screens.challenges
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
 import com.silas270.blocktime.ui.theme.ScreenGutter
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +57,8 @@ import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.repository.MAX_ACTIVE_CHALLENGES
 import com.silas270.blocktime.data.repository.StartChallengeResult
+import com.silas270.blocktime.data.repository.SyncSummary
+import com.silas270.blocktime.domain.onlineAvailability
 import com.silas270.blocktime.data.model.AchievementCategory
 import com.silas270.blocktime.data.model.AchievementStatus
 import com.silas270.blocktime.ui.components.AchievementDetailModal
@@ -104,10 +110,17 @@ fun ChallengesScreen(
     val startResult by viewModel.startResult.collectAsState()
     val focusedChallengeId by viewModel.focusedChallengeId.collectAsState()
     val pausedFreeFlight by viewModel.pausedFreeFlight.collectAsState()
+    val serverState by viewModel.serverState.collectAsState()
+    val shareState by viewModel.shareState.collectAsState()
+    val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
+    val context = LocalContext.current
 
     var tab by rememberSaveable { mutableStateOf(ChallengesTab.CHALLENGES) }
     var showPicker by remember { mutableStateOf(false) }
-    var infoChallenge by remember { mutableStateOf<Challenge?>(null) }
+    // The id, not the row: the modal reads the row from the live slot list on every composition,
+    // so a sync that changes it (a crew member's landing, a room ending) shows at once (Y11).
+    var infoChallengeId by remember { mutableStateOf<Int?>(null) }
+    val infoChallenge = infoChallengeId?.let { id -> slotChallenges.firstOrNull { it.id == id } }
     var pendingAbandon by remember { mutableStateOf<Challenge?>(null) }
     var showFreeModeNotice by remember { mutableStateOf(false) }
     var discardFreeFlightTarget by remember { mutableStateOf<PausedFlight?>(null) }
@@ -163,6 +176,12 @@ fun ChallengesScreen(
         }
     }
 
+    // A row that left the slot list while its modal was open (abandoned, or a failure dismissed
+    // after its presentation) closes the modal rather than leaving an id nothing resolves.
+    LaunchedEffect(infoChallengeId, infoChallenge) {
+        if (infoChallengeId != null && infoChallenge == null) infoChallengeId = null
+    }
+
     val listState = rememberLazyListState()
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -215,7 +234,7 @@ fun ChallengesScreen(
                             ChallengeSlotRow(
                                 challenges = displayedChallenges,
                                 onEmptySlotClick = { showPicker = true },
-                                onChallengeClick = { infoChallenge = it },
+                                onChallengeClick = { infoChallengeId = it.id },
                                 onSlotPositioned = { slotIndex, bounds -> slotBoundsByIndex[slotIndex] = bounds }
                             )
                         }
@@ -310,11 +329,20 @@ fun ChallengesScreen(
         }
 
         infoChallenge?.let { challenge ->
+            // Stamped when the modal opens or a sync lands, not every frame: the caption is "how
+            // old are the crew's numbers", and a minute's drift while the modal is open is fine.
+            val syncedAgo = (lastSyncSummary as? SyncSummary.Synced)?.let { synced ->
+                val now = remember(challenge.id, synced) { System.currentTimeMillis() }
+                syncedAgoLabel(synced.at, now)
+            }
             ChallengeInfoModal(
                 challenge = challenge,
                 isFocused = challenge.id == focusedChallengeId,
+                availability = onlineAvailability(serverState),
+                shareState = shareState,
+                syncedAgo = syncedAgo,
                 onContinue = {
-                    infoChallenge = null
+                    infoChallengeId = null
                     viewModel.focusRouteChallenge(challenge.id)
                     if (challenge.pausedFlight != null) {
                         onResumeRouteChallenge(challenge)
@@ -323,14 +351,29 @@ fun ChallengesScreen(
                     }
                 },
                 onPause = {
-                    infoChallenge = null
+                    infoChallengeId = null
                     viewModel.pauseFocusedChallenge()
                 },
                 onAbandon = {
-                    infoChallenge = null
+                    infoChallengeId = null
                     pendingAbandon = challenge
                 },
-                onDismiss = { infoChallenge = null }
+                onShare = { viewModel.shareChallenge(challenge.id) },
+                onCopyCode = { code ->
+                    context.getSystemService(ClipboardManager::class.java)
+                        ?.setPrimaryClip(ClipData.newPlainText("Blocktime challenge code", code))
+                },
+                onShareCode = { code ->
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "Join my Blocktime challenge \"${challenge.name}\": $code")
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share challenge code"))
+                },
+                onDismiss = {
+                    infoChallengeId = null
+                    viewModel.clearShareState()
+                }
             )
         }
 

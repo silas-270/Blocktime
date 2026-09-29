@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
-import com.silas270.blocktime.data.model.progressFraction
+import com.silas270.blocktime.data.model.displayProgressFraction
+import com.silas270.blocktime.data.model.isShared
+import com.silas270.blocktime.data.model.racePlacement
+import com.silas270.blocktime.data.model.teamVisitedMembers
 import com.silas270.blocktime.ui.components.CardVariant
 import com.silas270.blocktime.ui.components.FocusCard
 import com.silas270.blocktime.ui.components.RingProgress
@@ -126,21 +131,35 @@ private fun EmptySlot(onClick: () -> Unit) {
     }
 }
 
+/**
+ * One filled slot: the ring shows what the screens show, the team's progress for a shared pool
+ * and the pilot's own otherwise ([displayProgressFraction]). A shared row wears a crew badge top
+ * left, a race its placement instead; a paused leg's badge top right only while the row is
+ * still active. A failed streak, waiting for its presentation, draws its ring in Haze under
+ * "BROKEN" (docs/shared-challenges.md "Presentation").
+ */
 @Composable
 private fun FilledSlot(
     challenge: Challenge,
     onClick: () -> Unit
 ) {
+    val active = challenge.status == ChallengeStatus.ACTIVE
+    val failed = challenge.status == ChallengeStatus.FAILED
+    val shared = challenge.isShared()
     val animatedProgress by animateFloatAsState(
-        targetValue = challenge.progressFraction(),
+        targetValue = challenge.displayProgressFraction(),
         animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
         label = "challenge_slot_${challenge.id}"
     )
 
-    val labelText = if (challenge.type == ChallengeType.SET_COMPLETION) {
-        "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
-    } else {
-        "${(animatedProgress * 100).toInt()}%"
+    val labelText = when {
+        failed -> "BROKEN"
+        // A shared set counts the union, like its ring.
+        challenge.type == ChallengeType.SET_COMPLETION && shared ->
+            "${challenge.teamVisitedMembers().size}/${challenge.setTotalMembers}"
+        challenge.type == ChallengeType.SET_COMPLETION ->
+            "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
+        else -> "${(animatedProgress * 100).toInt()}%"
     }
 
     FocusCard(
@@ -167,7 +186,7 @@ private fun FilledSlot(
                 progress = animatedProgress,
                 modifier = Modifier.fillMaxSize().padding(Spacing.Small),
                 strokeWidth = 5.dp,
-                fillColor = Amber
+                fillColor = if (failed) Haze else Amber
             ) {
                 AutoScalingCenterText(
                     text = labelText,
@@ -175,9 +194,47 @@ private fun FilledSlot(
                 )
             }
 
+            // A shared row says so before the tap: the crew icon for a pool, the pilot's place
+            // for a race ("2nd"), mirroring the pause badge on the other corner.
+            if (shared) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Amber),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val placement = if (challenge.type == ChallengeType.ROUTE) challenge.racePlacement() else null
+                    if (placement != null) {
+                        Text(
+                            text = "$placement${ordinalSuffix(placement)}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 7.sp,
+                                lineHeight = 8.sp
+                            ),
+                            color = DeepNavy,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Groups,
+                            contentDescription = "Shared challenge",
+                            tint = DeepNavy,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+
             // A Route challenge with a leg paused mid-air: tapping it offers RESUME rather than a
-            // fresh booking, and the slot should say so before the tap rather than after.
-            if (challenge.pausedFlight != null) {
+            // fresh booking, and the slot should say so before the tap rather than after. A
+            // terminal row has no leg to resume, whatever the column still holds.
+            if (active && challenge.pausedFlight != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
