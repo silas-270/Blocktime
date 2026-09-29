@@ -296,7 +296,14 @@ class LocalChallengeRepository(
     override suspend fun abandonChallenge(id: Int) = writeMutex.withLock {
         // Deletes the row entirely - no ABANDONED status - so the cap slot frees immediately and
         // retrying later is a fresh instance, per challenges.md's "Abandon, not reset".
+        //
+        // A shared row also leaves its room, and leaving is one path online or not (A2, A3 in
+        // docs/shared-challenges.md): the code is queued here, and the next sync sends the leave,
+        // because the network must never run under this lock and a leave that fails while the
+        // pilot is offline must not be lost with the row.
+        val roomCode = challengeDao.getById(id)?.roomCode
         challengeDao.deleteById(id)
+        if (roomCode != null) preferencesRepository?.addPendingRoomLeave(roomCode)
     }
 
     override suspend fun advanceRouteChallenge(challengeId: Int, newPositionIata: String): Challenge? = writeMutex.withLock {

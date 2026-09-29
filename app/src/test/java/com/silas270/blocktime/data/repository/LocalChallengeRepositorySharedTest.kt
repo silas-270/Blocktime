@@ -803,4 +803,28 @@ class LocalChallengeRepositorySharedTest {
         repository.markCelebrated(row.id)
         assertFalse(repository.hasPendingPresentation())
     }
+
+    // ── Abandoning ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `A2 abandoning a shared row deletes it and queues the room leave for the next sync`() = runTest {
+        val row = distanceRow(roomCode = ROOM)
+
+        repository.abandonChallenge(row.id)
+
+        assertNull(dao.getById(row.id))
+        assertEquals(setOf(ROOM), prefs.getPendingRoomLeaves())
+        // Never under the lock: the leave itself is the syncer's, not the repository's.
+        assertEquals(emptyList<String>(), roomApi.calls)
+    }
+
+    @Test
+    fun `A1 abandoning a solo row queues nothing`() = runTest {
+        val row = distanceRow()
+
+        repository.abandonChallenge(row.id)
+
+        assertNull(dao.getById(row.id))
+        assertEquals(emptySet<String>(), prefs.getPendingRoomLeaves())
+    }
 }

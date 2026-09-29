@@ -271,7 +271,12 @@ class ChallengesViewModel(
     }
 
     fun abandon(id: Int) {
-        viewModelScope.launch { challengeRepository.abandonChallenge(id) }
+        viewModelScope.launch {
+            challengeRepository.abandonChallenge(id)
+            // A shared row queued its room leave; send it now rather than at the next foreground
+            // (docs/shared-challenges.md, A2). Harmless for a solo row: nothing is pending.
+            sharedChallengeSyncer.requestSync(SyncReason.USER_ACTION)
+        }
     }
 
     /** Called by the completion-presentation overlay the instant a challenge's fly-out animation

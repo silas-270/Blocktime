@@ -50,10 +50,11 @@ There are no push notifications. `SharedChallengeSyncer` asks the server at exac
 | A landing has been credited and its outcome published (`InFlightViewModel`) | `LANDING` | none |
 | Share, look-up, join and abandon | `USER_ACTION` | none |
 
-`USER_ACTION` is declared for the user-driven moments but nothing requests it yet: share, look-up
-and join call the server directly from the repository and report the outcome to the reachability
-signal themselves, and abandon does not talk to the server at all (A2). The reason exists so that
-a later leave-on-abandon has a name that is never debounced.
+Share, look-up and join call the server directly from the repository and report the outcome to
+the reachability signal themselves. `USER_ACTION` is requested by abandon: the repository deletes
+the row and queues the room code in `pending_room_leaves`, and the sync that follows sends the
+leave (A2). It is never debounced, so the leave goes out at once when the server answers, and it
+waits in the queue when it does not (A3).
 
 One sync (`syncNow`) runs to completion under a mutex, in five steps:
 
@@ -461,8 +462,8 @@ default that was chosen for the design rather than decided by the product.
 | # | State | Result |
 |---|---|---|
 | A1 | Not shared | As today: the row is deleted. |
-| A2 | Shared, active | The modal adds "Your crew keeps the challenge; you leave the room." The row is deleted. **The server is not told**: `abandonChallenge` deletes the row and nothing queues the leave or requests a sync, so the pilot's snapshot stays in the room, not marked `left`, until the server's retention removes it. The syncer's leave path exists (pending leaves, step 3) and is fed by S8 and J5 only. |
-| A3 | Shared, unreachable or sharing off | As A2. A queued leave, when there is one, is sent by the next successful sync. |
+| A2 | Shared, active, reachable | The modal adds "Your crew keeps the challenge; you leave the room." The row is deleted under the lock and its code is queued in `pending_room_leaves`; the `USER_ACTION` sync that follows sends the leave. Leaving is one path, online or not, and the network never runs under the lock. |
+| A3 | Shared, unreachable or sharing off | As A2; the queued leave is sent by the next successful sync. |
 | A4 | Shared race with a paused leg | The paused flight goes with the row, as today. |
 | A5 | The pilot created the room | No special case. Rooms have no owner. |
 | A6 | Terminal, unpresented | **Cannot abandon.** ABANDON is not shown for a non-active row; the presentation is the only way out. |
