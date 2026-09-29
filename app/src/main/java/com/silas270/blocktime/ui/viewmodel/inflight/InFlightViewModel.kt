@@ -21,6 +21,8 @@ import com.silas270.blocktime.data.repository.LandingResultChannel
 import com.silas270.blocktime.data.repository.PausedFlightStore
 import com.silas270.blocktime.data.repository.PreferencesRepository
 import com.silas270.blocktime.data.repository.SessionPausedFlightStore
+import com.silas270.blocktime.data.repository.SharedChallengeSyncer
+import com.silas270.blocktime.data.repository.SyncReason
 import com.silas270.blocktime.data.repository.processLandingForChallenges
 import com.silas270.blocktime.data.repository.resolveLandingOutcome
 import com.silas270.blocktime.domain.EnginePowerModel
@@ -68,6 +70,9 @@ class InFlightViewModel(
     private val preferencesRepository: PreferencesRepository,
     private val flightLogRepository: FlightLogRepository,
     private val challengeRepository: ChallengeRepository,
+    /** Asked for a `LANDING` sync once the landing has been credited and published; it runs on
+     *  the syncer's own scope, never on [landingScope] (docs/shared-challenges.md "Landing"). */
+    private val sharedChallengeSyncer: SharedChallengeSyncer,
     /** Phase 3b's landing-result channel (see docs/core-loop.md's post-landing pipeline
      *  step 5) - published into at the end of [checkAchievementsAndChallenges], read by
      *  `CesiumGameActivity`'s `Screen.ArrivalCelebration` `onContinue` once this ViewModel (and
@@ -624,6 +629,11 @@ class InFlightViewModel(
             // every completion invisible to the diff. See resolveLandingOutcome's own note.
             val after: List<Challenge> = before.mapNotNull { challengeRepository.getChallenge(it.id) }
             landingResultChannel.publish(resolveLandingOutcome(before, after))
+            // Only after the credit and the publish, and never on landingScope: requestSync
+            // launches on the syncer's own scope, so onCleared's join above never waits for the
+            // network and the outcome screen is never delayed by it (docs/shared-challenges.md
+            // "Landing", L1, L10).
+            sharedChallengeSyncer.requestSync(SyncReason.LANDING)
         } catch (e: Exception) {
             // Includes CancellationException on the way out: if this scope is being torn down
             // mid-check, publishing None is still strictly better than leaving the arrival screen
@@ -710,6 +720,7 @@ class InFlightViewModelFactory(
     private val preferencesRepository: PreferencesRepository,
     private val flightLogRepository: FlightLogRepository,
     private val challengeRepository: ChallengeRepository,
+    private val sharedChallengeSyncer: SharedChallengeSyncer,
     private val landingResultChannel: LandingResultChannel,
     private val destinationPhotoChannel: DestinationPhotoChannel,
     private val destinationPhotoRepository: DestinationPhotoRepository,
@@ -725,7 +736,7 @@ class InFlightViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(InFlightViewModel::class.java)) {
-            return InFlightViewModel(airportRepository, preferencesRepository, flightLogRepository, challengeRepository, landingResultChannel, destinationPhotoChannel, destinationPhotoRepository, offlineModeController, cacheDir, flightNumber, originIata, destIata, durationMin, mode, challengeId) as T
+            return InFlightViewModel(airportRepository, preferencesRepository, flightLogRepository, challengeRepository, sharedChallengeSyncer, landingResultChannel, destinationPhotoChannel, destinationPhotoRepository, offlineModeController, cacheDir, flightNumber, originIata, destIata, durationMin, mode, challengeId) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

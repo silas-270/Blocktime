@@ -7,37 +7,76 @@ import androidx.lifecycle.viewModelScope
 import com.silas270.blocktime.data.model.AchievementStatus
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.data.model.Challenge
-import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
+import com.silas270.blocktime.data.model.RoomState
 import com.silas270.blocktime.data.local.airport.AirportDataException
+import com.silas270.blocktime.data.network.ServerReachability
+import com.silas270.blocktime.data.network.ServerState
+import com.silas270.blocktime.data.network.room.RoomResult
 import com.silas270.blocktime.data.repository.PilotProgressRepository
 import com.silas270.blocktime.data.repository.AirportRepository
 import com.silas270.blocktime.data.repository.ChallengeRepository
+import com.silas270.blocktime.data.repository.JoinResult
 import com.silas270.blocktime.data.repository.PreferencesRepository
+import com.silas270.blocktime.data.repository.ShareIneligibility
+import com.silas270.blocktime.data.repository.ShareResult
+import com.silas270.blocktime.data.repository.SharedChallengeSyncer
 import com.silas270.blocktime.data.repository.StartChallengeResult
+import com.silas270.blocktime.data.repository.SyncReason
+import com.silas270.blocktime.data.repository.asJoinFailure
 import com.silas270.blocktime.domain.AirportSearchController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** The picker's "Have a code?" flow (docs/shared-challenges.md "Joining"). */
+sealed interface RoomLookupState {
+    data object Idle : RoomLookupState
+    data object Loading : RoomLookupState
+
+    /** The preview: name, type, target, crew and warnings come from the room itself. */
+    data class Found(val room: RoomState) : RoomLookupState
+
+    /** Why the code cannot be joined, in the join's own vocabulary (J3, J7, J8, J10, J11, J12). */
+    data class Error(val reason: JoinResult) : RoomLookupState
+}
+
+/** The info modal's "SHARE CHALLENGE" flow (docs/shared-challenges.md "Sharing"). */
+sealed interface ShareUiState {
+    data object Idle : ShareUiState
+    data object Working : ShareUiState
+    data class Shared(val code: String) : ShareUiState
+    data class Error(val message: String) : ShareUiState
+}
 
 /**
  * Backs the Challenges screen (docs/challenges.md#entry--management-surface): the three
  * active-challenge slots, the completed-challenges log beneath them, the Achievements tab's
  * still-unearned list, and the start/abandon/custom-create flows. One instance is created per
  * composition of that screen - cheap, since it holds no flight/engine state.
+ *
+ * Opening the screen asks the syncer for a `SCREEN_OPEN` sync (debounced), so a foreign
+ * completion is presented on this visit rather than the next (docs/shared-challenges.md, Y2).
  */
 class ChallengesViewModel(
     private val challengeRepository: ChallengeRepository,
     private val airportRepository: AirportRepository,
     private val pilotProgressRepository: PilotProgressRepository,
-    private val preferencesRepository: PreferencesRepository
+    private val preferencesRepository: PreferencesRepository,
+    private val sharedChallengeSyncer: SharedChallengeSyncer,
+    serverReachability: ServerReachability
 ) : ViewModel() {
+
+    /** What the sharing surfaces ask before offering an online action (docs/shared-challenges.md
+     *  "Two signals"); `onlineAvailability(state)` turns it into hidden, dimmed or enabled. */
+    val serverState: StateFlow<ServerState> = serverReachability.state
 
     /** What the three slots actually render: ACTIVE challenges, plus any COMPLETED-but-not-yet-
      *  celebrated one (docs/challenges.md) - so a just-finished challenge keeps its slot until its
@@ -55,16 +94,27 @@ class ChallengesViewModel(
     private val _completedChallenges = MutableStateFlow<List<Challenge>>(emptyList())
     val completedChallenges: StateFlow<List<Challenge>> = _completedChallenges.asStateFlow()
 
-    /** Which completed-but-uncelebrated challenges to run the completion-presentation animation
-     *  for this session, in slot order (left to right) - see docs/challenges.md. Computed **once**
-     *  from the current snapshot rather than kept live off [slotChallenges], so a challenge that's
-     *  already mid-animation is never re-queued by a later, unrelated emission (e.g. another
-     *  challenge's own celebration finishing). This is also what makes the feature resilient to
-     *  the app being killed mid-celebration: the queue is reconstructed fresh from the database -
-     *  `status = COMPLETED AND celebrated = false` - every time this ViewModel (and therefore this
-     *  screen) is created, regardless of how the player got here or when they left last time. */
-    private val _celebrationQueue = MutableStateFlow<List<Challenge>>(emptyList())
-    val celebrationQueue: StateFlow<List<Challenge>> = _celebrationQueue.asStateFlow()
+    /**
+     * Which terminal-but-unpresented challenges to run the presentation for this session, in
+     * the order they were noticed - see docs/challenges.md and docs/shared-challenges.md
+     * "Presentation". The queue holds **ids**, fed live from [slotChallenges] through
+     * [nextQueue]: every emission appends the unpresented terminal rows it has not seen before,
+     * and [seenIds] keeps a row that is mid-animation from being queued twice by a later,
+     * unrelated emission (another celebration finishing, a sync refreshing a cache). Live rather
+     * than computed once so a completion that a sync brings in while the screen is open is
+     * presented on this visit.
+     *
+     * [celebrationQueue] resolves the ids against the latest emission at read time, so a sync
+     * that corrects a row's outcome after it was queued (a refused claim turning a win into a
+     * placement) is presented as corrected. The database is still the source: the queue is
+     * rebuilt from `status IN (COMPLETED, FAILED) AND celebrated = 0` whenever this ViewModel is
+     * created, so the app being killed mid-celebration loses nothing.
+     */
+    private val queuedIds = MutableStateFlow<List<Int>>(emptyList())
+    private var seenIds: Set<Int> = emptySet()
+    val celebrationQueue: StateFlow<List<Challenge>> =
+        combine(queuedIds, slotChallenges) { ids, rows -> ids.mapNotNull { id -> rows.firstOrNull { it.id == id } } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Still-unearned achievements, ordered closest-to-done first (the screen groups them under
      *  category headers) so the next reachable goal is always on top. Earned ones are
@@ -93,14 +143,16 @@ class ChallengesViewModel(
             // exact signal.
             slotChallenges.collect { _completedChallenges.value = challengeRepository.listCompletedChallenges() }
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            // One-shot, not a live collect - see celebrationQueue's own doc for why. Reads the
-            // repository directly rather than slotChallenges' own StateFlow, since that one only
-            // starts collecting once something subscribes to it (WhileSubscribed) and has no
-            // value yet this early in construction.
-            _celebrationQueue.value = challengeRepository.listSlotDisplayChallengesFlow().first()
-                .filter { it.status == ChallengeStatus.COMPLETED && !it.celebrated }
+        viewModelScope.launch {
+            // On the main dispatcher, like celebrate() and dismissFailed(), so the queue and the
+            // seen set have one writer thread. See celebrationQueue's own doc.
+            slotChallenges.collect { rows ->
+                val (queue, seen) = nextQueue(queuedIds.value, seenIds, rows)
+                seenIds = seen
+                queuedIds.value = queue
+            }
         }
+        sharedChallengeSyncer.requestSync(SyncReason.SCREEN_OPEN)
         viewModelScope.launch {
             // The achievement board is no longer re-derived here. It used to call loadBoard() on
             // every activeChallenges emission - re-reading the entire flight history and
@@ -220,16 +272,99 @@ class ChallengesViewModel(
 
     /** Called by the completion-presentation overlay the instant a challenge's fly-out animation
      *  finishes - persists the flag (moving it into the log/off the slot) and advances the local
-     *  queue so the overlay moves on to the next one. */
+     *  queue so the overlay moves on to the next one. Persist first, then dequeue: the other
+     *  order would let a slot emission re-queue the row between the two. */
     fun celebrate(id: Int) {
         viewModelScope.launch {
             challengeRepository.markCelebrated(id)
-            _celebrationQueue.value = _celebrationQueue.value.filterNot { it.id == id }
+            queuedIds.update { it - id }
+        }
+    }
+
+    /** Called by the failure overlay once its shatter has played: deletes the row (the log stays
+     *  a log of successes, docs/shared-challenges.md "Presentation") and advances the queue, in
+     *  the same order as [celebrate] for the same reason. */
+    fun dismissFailed(id: Int) {
+        viewModelScope.launch {
+            challengeRepository.dismissFailed(id)
+            queuedIds.update { it - id }
         }
     }
 
     fun clearStartResult() {
         _startResult.value = null
+    }
+
+    // ── Shared challenges (docs/shared-challenges.md) ───────────────────────────────────────
+
+    private val _roomLookup = MutableStateFlow<RoomLookupState>(RoomLookupState.Idle)
+    val roomLookup: StateFlow<RoomLookupState> = _roomLookup.asStateFlow()
+
+    private val _shareState = MutableStateFlow<ShareUiState>(ShareUiState.Idle)
+    val shareState: StateFlow<ShareUiState> = _shareState.asStateFlow()
+
+    /** The picker's LOOK UP: fetches the room for the preview (J3, J4, J11). */
+    fun lookUpRoom(code: String) {
+        _roomLookup.value = RoomLookupState.Loading
+        viewModelScope.launch {
+            _roomLookup.value = when (val result = challengeRepository.lookUpRoom(code)) {
+                is RoomResult.Ok -> RoomLookupState.Found(result.value)
+                else -> RoomLookupState.Error(result.asJoinFailure())
+            }
+        }
+    }
+
+    /**
+     * The preview's JOIN. A join is published as the existing [StartChallengeResult.Started], so
+     * the screen closes the picker, focuses a route and returns to the Hub exactly as after
+     * starting a challenge (J4); a full cap reuses the existing "CHALLENGE SLOTS FULL" modal
+     * (J5). Everything else stays on the preview with its reason.
+     */
+    fun joinRoom(code: String) {
+        _roomLookup.value = RoomLookupState.Loading
+        viewModelScope.launch {
+            when (val result = challengeRepository.joinRoom(code)) {
+                is JoinResult.Joined -> {
+                    _roomLookup.value = RoomLookupState.Idle
+                    val started = StartChallengeResult.Started(result.challenge)
+                    _startResult.value = started
+                    focusIfRoute(started)
+                }
+                JoinResult.CapReached -> {
+                    _roomLookup.value = RoomLookupState.Idle
+                    _startResult.value = StartChallengeResult.CapReached
+                }
+                else -> _roomLookup.value = RoomLookupState.Error(result)
+            }
+        }
+    }
+
+    fun clearRoomLookup() {
+        _roomLookup.value = RoomLookupState.Idle
+    }
+
+    /** The info modal's SHARE CHALLENGE (S3 to S8). The modal stays open and switches to the
+     *  code once [ShareUiState.Shared] arrives; the row itself updates through [slotChallenges]. */
+    fun shareChallenge(id: Int) {
+        _shareState.value = ShareUiState.Working
+        viewModelScope.launch {
+            _shareState.value = when (val result = challengeRepository.shareChallenge(id)) {
+                is ShareResult.Shared -> ShareUiState.Shared(result.code)
+                is ShareResult.NotEligible -> ShareUiState.Error(
+                    when (result.reason) {
+                        ShareIneligibility.NOT_ACTIVE -> "This challenge is already over"
+                        ShareIneligibility.ALREADY_SHARED -> "This challenge is already shared"
+                        ShareIneligibility.HAS_PROGRESS, ShareIneligibility.HAS_PAUSED_LEG -> "Only a fresh challenge can be shared"
+                        ShareIneligibility.UNKNOWN -> "This challenge no longer exists"
+                    }
+                )
+                is ShareResult.Unavailable -> ShareUiState.Error("Server not reachable, try again")
+            }
+        }
+    }
+
+    fun clearShareState() {
+        _shareState.value = ShareUiState.Idle
     }
 }
 
@@ -244,12 +379,14 @@ class ChallengesViewModelFactory(
     private val challengeRepository: ChallengeRepository,
     private val airportRepository: AirportRepository,
     private val pilotProgressRepository: PilotProgressRepository,
-    private val preferencesRepository: PreferencesRepository
+    private val preferencesRepository: PreferencesRepository,
+    private val sharedChallengeSyncer: SharedChallengeSyncer,
+    private val serverReachability: ServerReachability
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChallengesViewModel::class.java)) {
-            return ChallengesViewModel(challengeRepository, airportRepository, pilotProgressRepository, preferencesRepository) as T
+            return ChallengesViewModel(challengeRepository, airportRepository, pilotProgressRepository, preferencesRepository, sharedChallengeSyncer, serverReachability) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

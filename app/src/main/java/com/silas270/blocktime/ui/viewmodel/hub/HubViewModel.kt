@@ -16,6 +16,8 @@ import com.silas270.blocktime.data.repository.AirportRepository
 import com.silas270.blocktime.data.repository.ChallengeRepository
 import com.silas270.blocktime.data.repository.PilotProgressRepository
 import com.silas270.blocktime.data.repository.PreferencesRepository
+import com.silas270.blocktime.data.repository.SharedChallengeSyncer
+import com.silas270.blocktime.data.repository.SyncSummary
 import com.silas270.blocktime.data.repository.UserRepository
 import com.silas270.blocktime.domain.resolveCurrentAirportIata
 import com.silas270.blocktime.domain.resolveHomeAirportIata
@@ -24,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -34,6 +37,7 @@ class HubViewModel(
     private val challengeRepository: ChallengeRepository,
     private val pilotProgressRepository: PilotProgressRepository,
     offlineModeController: OfflineModeController,
+    sharedChallengeSyncer: SharedChallengeSyncer,
     private val cacheDir: File
 ) : ViewModel() {
 
@@ -81,6 +85,15 @@ class HubViewModel(
         viewModelScope.launch {
             userRepository.getProfileFlow().collect { profile ->
                 _pilotName.value = profile?.username?.takeIf { it.isNotBlank() }
+            }
+        }
+        viewModelScope.launch {
+            // A sync can end the focused route (someone else won) while the pilot sits on the
+            // Hub; refreshing on each completed sync lets resolveFocusedChallenge clear the focus
+            // now rather than at the next ON_START (docs/shared-challenges.md, Y10). The current
+            // value is dropped: loadData() above already read what that sync wrote.
+            sharedChallengeSyncer.lastSummary.drop(1).collect { summary ->
+                if (summary is SyncSummary.Synced) refresh()
             }
         }
     }
@@ -181,12 +194,13 @@ class HubViewModelFactory(
     private val challengeRepository: ChallengeRepository,
     private val pilotProgressRepository: PilotProgressRepository,
     private val offlineModeController: OfflineModeController,
+    private val sharedChallengeSyncer: SharedChallengeSyncer,
     private val cacheDir: File
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(HubViewModel::class.java)) {
-            return HubViewModel(airportRepository, preferencesRepository, userRepository, challengeRepository, pilotProgressRepository, offlineModeController, cacheDir) as T
+            return HubViewModel(airportRepository, preferencesRepository, userRepository, challengeRepository, pilotProgressRepository, offlineModeController, sharedChallengeSyncer, cacheDir) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

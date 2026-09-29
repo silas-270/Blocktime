@@ -43,6 +43,8 @@ import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.FlightMode
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.network.OfflineModeController
+import com.silas270.blocktime.data.network.ServerReachability
+import com.silas270.blocktime.data.network.room.RoomApiProvider
 import com.silas270.blocktime.data.repository.AchievementsRepository
 import com.silas270.blocktime.data.repository.AirportRepository
 import com.silas270.blocktime.data.repository.ChallengeOutcome
@@ -60,8 +62,12 @@ import com.silas270.blocktime.data.repository.LocalFlightLogRepository
 import com.silas270.blocktime.data.repository.LocalUserRepository
 import com.silas270.blocktime.data.repository.PilotProgressRepository
 import com.silas270.blocktime.data.repository.PreferencesRepository
+import com.silas270.blocktime.data.repository.SharedChallengeSyncer
+import com.silas270.blocktime.data.repository.SyncReason
 import com.silas270.blocktime.data.repository.UserRepository
+import com.silas270.blocktime.domain.ArrivalDestination
 import com.silas270.blocktime.domain.flightNumberFor
+import com.silas270.blocktime.domain.resolveArrivalDestination
 import com.silas270.blocktime.domain.resolveNextLeg
 import com.silas270.blocktime.engine.live.CesiumLiveJniBridge
 import com.silas270.blocktime.engine.live.PendingFlightLoader
@@ -197,6 +203,14 @@ class CesiumGameActivity : GameActivity() {
     /** Process-wide (see OfflineModeController.getInstance): ViewModels can outlive this Activity. */
     private lateinit var offlineModeController: OfflineModeController
 
+    /** Process-wide like [offlineModeController]: the second signal, "does our server answer"
+     *  (docs/shared-challenges.md "Two signals"). */
+    private lateinit var serverReachability: ServerReachability
+
+    /** Built on [appScope] after the repositories, so a landing's sync request never waits on a
+     *  ViewModel's scope (docs/shared-challenges.md "Sync moments"). */
+    private lateinit var sharedChallengeSyncer: SharedChallengeSyncer
+
     /** Outlives every ViewModel on purpose - it is what keeps the shared derivation warm across
      *  navigation, which is the entire point of PilotProgressRepository. Cancelled in onDestroy. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -230,13 +244,22 @@ class CesiumGameActivity : GameActivity() {
         pendingFlightLoader = PendingFlightLoader(airportRepository)
         preferencesRepository = PreferencesRepository(applicationContext)
         offlineModeController = OfflineModeController.getInstance(applicationContext)
+        serverReachability = ServerReachability.getInstance(applicationContext)
+        val roomApi = RoomApiProvider.roomApi
         com.silas270.blocktime.ui.theme.ThemeModeHolder.current = preferencesRepository.getThemeMode()
 
         // Initialize Room database and repositories
         val appDatabase = AppDatabase.getInstance(applicationContext)
         userRepository = LocalUserRepository(appDatabase.userProfileDao())
         flightLogRepository = LocalFlightLogRepository(appDatabase.flightLogDao(), appDatabase.userProfileDao())
-        challengeRepository = LocalChallengeRepository(appDatabase.challengeDao(), appDatabase.userProfileDao(), airportRepository)
+        challengeRepository = LocalChallengeRepository(
+            appDatabase.challengeDao(),
+            appDatabase.userProfileDao(),
+            airportRepository,
+            roomApi = roomApi,
+            serverReachability = serverReachability,
+            preferencesRepository = preferencesRepository
+        )
         achievementsRepository = LocalAchievementsRepository(
             appDatabase.achievementUnlockDao(),
             appDatabase.userProfileDao(),
@@ -249,6 +272,15 @@ class CesiumGameActivity : GameActivity() {
             flightLogRepository,
             airportRepository,
             achievementsRepository,
+            appScope
+        )
+
+        sharedChallengeSyncer = SharedChallengeSyncer(
+            challengeRepository,
+            userRepository,
+            preferencesRepository,
+            roomApi,
+            serverReachability,
             appScope
         )
 
@@ -396,7 +428,7 @@ class CesiumGameActivity : GameActivity() {
                                 // ── Hub ──
                                 composable(Screen.Hub.route) { entry ->
                                     val viewModel: HubViewModel = viewModel(
-                                        factory = HubViewModelFactory(airportRepository, preferencesRepository, userRepository, challengeRepository, pilotProgressRepository, offlineModeController, cacheDir)
+                                        factory = HubViewModelFactory(airportRepository, preferencesRepository, userRepository, challengeRepository, pilotProgressRepository, offlineModeController, sharedChallengeSyncer, cacheDir)
                                     )
                                     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
                                     com.silas270.blocktime.ui.screens.hub.HubScreen(
@@ -427,7 +459,7 @@ class CesiumGameActivity : GameActivity() {
                                 // ── Challenges (modes/goals surface) ──
                                 composable(Screen.Challenges.route) { entry ->
                                     val challengesViewModel: ChallengesViewModel = viewModel(
-                                        factory = ChallengesViewModelFactory(challengeRepository, airportRepository, pilotProgressRepository, preferencesRepository)
+                                        factory = ChallengesViewModelFactory(challengeRepository, airportRepository, pilotProgressRepository, preferencesRepository, sharedChallengeSyncer, serverReachability)
                                     )
                                     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
                                     com.silas270.blocktime.ui.screens.challenges.ChallengesScreen(
@@ -639,7 +671,7 @@ class CesiumGameActivity : GameActivity() {
                                     }
 
                                     val viewModel: InFlightViewModel = viewModel(
-                                        factory = InFlightViewModelFactory(airportRepository, preferencesRepository, flightLogRepository, challengeRepository, landingResultChannel, destinationPhotoChannel, destinationPhotoRepository, offlineModeController, cacheDir, flightNo, originIata, destIata, durationMin, mode, challengeId)
+                                        factory = InFlightViewModelFactory(airportRepository, preferencesRepository, flightLogRepository, challengeRepository, sharedChallengeSyncer, landingResultChannel, destinationPhotoChannel, destinationPhotoRepository, offlineModeController, cacheDir, flightNo, originIata, destIata, durationMin, mode, challengeId)
                                     )
 
                                     InFlightScreen(
@@ -729,29 +761,41 @@ class CesiumGameActivity : GameActivity() {
                                                     )
                                                     LandingResult.None
                                                 }
-                                                when (outcome) {
-                                                    is LandingResult.ChallengesAffected -> {
-                                                        // A completed Route challenge is no longer ACTIVE, so it can
-                                                        // no longer be focused - clear the pref rather than leave it
-                                                        // stale (HubViewModel would self-heal this anyway, but this
-                                                        // avoids the round-trip). Only when the completed one *is* the
-                                                        // focused one: finishing some other Route challenge must not
-                                                        // unfocus the one the pilot picked.
-                                                        val focusedId = preferencesRepository.getFocusedRouteChallengeId()
-                                                        if (outcome.outcomes.any {
-                                                                it is ChallengeOutcome.Completed &&
-                                                                    it.type == ChallengeType.ROUTE &&
-                                                                    it.challengeId == focusedId
-                                                            }
-                                                        ) {
-                                                            preferencesRepository.clearFocusedRouteChallengeId()
+                                                if (outcome is LandingResult.ChallengesAffected) {
+                                                    // A completed Route challenge is no longer ACTIVE, so it can
+                                                    // no longer be focused - clear the pref rather than leave it
+                                                    // stale (HubViewModel would self-heal this anyway, but this
+                                                    // avoids the round-trip). Only when the completed one *is* the
+                                                    // focused one: finishing some other Route challenge must not
+                                                    // unfocus the one the pilot picked.
+                                                    val focusedId = preferencesRepository.getFocusedRouteChallengeId()
+                                                    if (outcome.outcomes.any {
+                                                            it is ChallengeOutcome.Completed &&
+                                                                it.type == ChallengeType.ROUTE &&
+                                                                it.challengeId == focusedId
                                                         }
+                                                    ) {
+                                                        preferencesRepository.clearFocusedRouteChallengeId()
+                                                    }
+                                                }
 
+                                                // One routing rule for both CONTINUE buttons (docs/shared-challenges.md
+                                                // "Landing"): outcomes go to the outcome screen; otherwise a terminal
+                                                // row still waiting to be presented (completed by a sync mid-flight,
+                                                // L3, L7) goes to Challenges, and nothing at all goes to the Hub.
+                                                val hasPendingPresentation = withContext(Dispatchers.IO) {
+                                                    runCatching { challengeRepository.hasPendingPresentation() }.getOrDefault(false)
+                                                }
+                                                when (resolveArrivalDestination(outcome, hasPendingPresentation)) {
+                                                    ArrivalDestination.OUTCOME ->
                                                         navController.navigateFrom(backStackEntry, Screen.ChallengeOutcome.route) {
                                                             popUpTo(Screen.ArrivalCelebration.route) { inclusive = true }
                                                         }
-                                                    }
-                                                    LandingResult.None, LandingResult.Pending ->
+                                                    ArrivalDestination.CHALLENGES ->
+                                                        navController.navigateFrom(backStackEntry, Screen.Challenges.route) {
+                                                            popUpTo(Screen.Hub.route) { inclusive = false }
+                                                        }
+                                                    ArrivalDestination.HUB ->
                                                         navController.navigateFrom(backStackEntry, Screen.Hub.route) {
                                                             popUpTo(Screen.Hub.route) { inclusive = true }
                                                         }
@@ -763,7 +807,8 @@ class CesiumGameActivity : GameActivity() {
 
                                 // ── Challenge outcome (per-leg tick-up and/or completion) ──
                                 composable(Screen.ChallengeOutcome.route) { entry ->
-                                    val outcomes = (landingResultChannel.result.value as? LandingResult.ChallengesAffected)
+                                    val landingResult = landingResultChannel.result.value
+                                    val outcomes = (landingResult as? LandingResult.ChallengesAffected)
                                         ?.outcomes.orEmpty()
                                     if (outcomes.isEmpty()) {
                                         // Only reachable when Navigation restores this screen after
@@ -778,24 +823,36 @@ class CesiumGameActivity : GameActivity() {
                                         }
                                         return@composable
                                     }
+                                    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
                                     ChallengeOutcomeScreen(
                                         outcomes = outcomes,
                                         loadChallenge = challengeRepository::getChallenge,
                                         onContinue = {
                                             // Any completion (even mixed with merely-advanced
-                                            // challenges) sends the pilot to Challenges instead of
-                                            // Hub, so they land on the completion-presentation
-                                            // celebration (docs/challenges.md) rather than having to
-                                            // think to go check. Collapses the whole flight-session
-                                            // stack down to Hub the same way the plain-Hub branch
-                                            // below does, just with Challenges pushed on top of it.
-                                            if (outcomes.any { it is ChallengeOutcome.Completed }) {
-                                                navController.navigateFrom(entry, Screen.Challenges.route) {
-                                                    popUpTo(Screen.Hub.route) { inclusive = false }
+                                            // challenges), or a terminal row a sync left waiting
+                                            // to be presented (L8), sends the pilot to Challenges
+                                            // instead of Hub, so they land on the presentation
+                                            // (docs/challenges.md, docs/shared-challenges.md
+                                            // "Landing") rather than having to think to go check.
+                                            // Collapses the whole flight-session stack down to Hub
+                                            // the same way the plain-Hub branch does, just with
+                                            // Challenges pushed on top of it. The same rule as the
+                                            // arrival screen's, so the two cannot drift apart.
+                                            coroutineScope.launch {
+                                                val hasPendingPresentation = withContext(Dispatchers.IO) {
+                                                    runCatching { challengeRepository.hasPendingPresentation() }.getOrDefault(false)
                                                 }
-                                            } else {
-                                                navController.navigateFrom(entry, Screen.Hub.route) {
-                                                    popUpTo(Screen.Hub.route) { inclusive = true }
+                                                val destination = resolveArrivalDestination(
+                                                    landingResult, hasPendingPresentation, fromOutcomeScreen = true
+                                                )
+                                                if (destination == ArrivalDestination.CHALLENGES) {
+                                                    navController.navigateFrom(entry, Screen.Challenges.route) {
+                                                        popUpTo(Screen.Hub.route) { inclusive = false }
+                                                    }
+                                                } else {
+                                                    navController.navigateFrom(entry, Screen.Hub.route) {
+                                                        popUpTo(Screen.Hub.route) { inclusive = true }
+                                                    }
                                                 }
                                             }
                                         }
@@ -964,6 +1021,13 @@ class CesiumGameActivity : GameActivity() {
                 }
             }, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         }
+    }
+
+    /** The foreground sync moment, cold start included (docs/shared-challenges.md, Y1). The
+     *  syncer debounces it, so a quick app switch costs nothing. */
+    override fun onStart() {
+        super.onStart()
+        sharedChallengeSyncer.requestSync(SyncReason.FOREGROUND)
     }
 
     override fun onDestroy() {
