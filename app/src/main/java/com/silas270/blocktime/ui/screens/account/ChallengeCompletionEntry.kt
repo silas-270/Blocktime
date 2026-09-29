@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeSource
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.SharedOutcome
 import com.silas270.blocktime.data.model.crewSize
@@ -84,7 +85,7 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A shared row carries a second stamp (docs/shared-challenges.md "Per
                     // type"): the pilot's place in a race, or how big the crew was for a pool.
-                    sharedStamp(challenge)?.let { stamp ->
+                    sharedStamps(challenge).forEach { stamp ->
                         FocusBadge(
                             text = stamp,
                             variant = BadgeVariant.Danger,
@@ -135,14 +136,35 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
     }
 }
 
-/** "1ST" for a decided race, "CREW ×3" for a shared pool, null for a solo row. Internal so the
- *  completion overlay's morph preview shows the same stamp the entry it lands as will wear. */
-internal fun sharedStamp(challenge: Challenge): String? {
-    if (!challenge.isShared()) return null
-    if (challenge.type == ChallengeType.ROUTE) {
-        if (challenge.sharedOutcome !is SharedOutcome.Completed) return null
-        val place = challenge.racePlacement() ?: return null
-        return "$place${ordinalSuffix(place).uppercase(Locale.US)}"
+/**
+ * The pilot's place in a finished shared race, or null for anything else. A race this phone
+ * completed by arriving, before any server reply, has no outcome of its own yet (L6) and is a
+ * win until the server says otherwise (merge rule 2 then corrects it). Internal so the lifted
+ * card and the log entry read the same place.
+ */
+internal fun finishedRacePlace(challenge: Challenge): Int? {
+    if (!challenge.isShared() || challenge.type != ChallengeType.ROUTE) return null
+    if (challenge.status != ChallengeStatus.COMPLETED) return null
+    return when (challenge.sharedOutcome) {
+        null -> 1
+        is SharedOutcome.Completed -> challenge.racePlacement()
+        is SharedOutcome.Failed -> null
     }
-    return "CREW ×${challenge.crewSize()}"
+}
+
+/** "2ND" for a place in a race. */
+internal fun placeStamp(place: Int): String = "$place${ordinalSuffix(place).uppercase(Locale.US)}"
+
+/**
+ * The stamps a shared row wears beside its type in the log: the place and the crew for a race,
+ * the crew for a pool, none for a solo row. A race carries the crew too because its celebration
+ * showed it, won or lost, and the entry is what that celebration lands as. Internal so the
+ * completion overlay's morph preview shows the same stamps.
+ */
+internal fun sharedStamps(challenge: Challenge): List<String> {
+    if (!challenge.isShared()) return emptyList()
+    val crew = "CREW ×${challenge.crewSize()}"
+    if (challenge.type != ChallengeType.ROUTE) return listOf(crew)
+    val place = finishedRacePlace(challenge) ?: return listOf(crew)
+    return listOf(placeStamp(place), crew)
 }

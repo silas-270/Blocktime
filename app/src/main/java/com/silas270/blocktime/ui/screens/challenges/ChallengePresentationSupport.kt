@@ -48,8 +48,12 @@ import com.silas270.blocktime.data.model.displayProgressFraction
 import com.silas270.blocktime.ui.components.RingProgress
 import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.components.icon
-import com.silas270.blocktime.ui.screens.account.sharedStamp
 import com.silas270.blocktime.ui.theme.Amber
+import com.silas270.blocktime.ui.screens.account.sharedStamps
+import com.silas270.blocktime.ui.screens.account.placeStamp
+import com.silas270.blocktime.ui.screens.account.finishedRacePlace
+import com.silas270.blocktime.ui.theme.Bronze
+import com.silas270.blocktime.ui.theme.Silver
 import com.silas270.blocktime.ui.theme.DeepNavy
 import com.silas270.blocktime.ui.theme.Haze
 import com.silas270.blocktime.ui.theme.LogbookInkDark
@@ -213,8 +217,20 @@ internal fun CelebrationCard(
     // A failed streak lifts out of its slot as the slot drew it: a Haze ring at the progress it
     // reached, under "BROKEN" (ChallengeSlotRow), not as a full ring it never earned.
     val failed = challenge.status == ChallengeStatus.FAILED
+    // A lost race lifts out the same way: the pilot never reached the finish first, so the ring
+    // shows how far they got, in the medal colour of their place, under the place itself.
+    val lostPlace = finishedRacePlace(challenge)?.takeIf { it > 1 }
+    val partialRing = failed || lostPlace != null
+    val ringColor = when {
+        failed -> Haze
+        lostPlace == 2 -> Silver
+        lostPlace == 3 -> Bronze
+        lostPlace != null -> Haze
+        else -> Amber
+    }
     val slotLabelText = when {
         failed -> "BROKEN"
+        lostPlace != null -> placeStamp(lostPlace)
         challenge.type == ChallengeType.SET_COMPLETION ->
             "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
         else -> "100%"
@@ -265,14 +281,15 @@ internal fun CelebrationCard(
                         .fillMaxSize()
                         .padding(Spacing.Large * scale)
                 )
-                // Progress ring, full and Amber for a completion - matches FilledSlot's Spacing.Small (8.dp) and 5.dp stroke
+                // Progress ring, full and Amber for a completion, partial for a broken streak or a lost
+                // race - matches FilledSlot's Spacing.Small (8.dp) and 5.dp stroke
                 RingProgress(
-                    progress = if (failed) challenge.displayProgressFraction() else 1f,
+                    progress = if (partialRing) challenge.displayProgressFraction() else 1f,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(Spacing.Small * scale),
                     strokeWidth = 5.dp * scale,
-                    fillColor = if (failed) Haze else Amber
+                    fillColor = ringColor
                 ) {
                     val baseFontSize = when {
                         slotLabelText.length <= 3 -> 15f
@@ -336,7 +353,7 @@ internal fun CelebrationCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // The same second stamp the finished entry wears for a shared row
                             // (ChallengeCompletionEntry), so the card lands as what it becomes.
-                            sharedStamp(challenge)?.let { stamp ->
+                            sharedStamps(challenge).forEach { stamp ->
                                 LogStampPreview(text = stamp)
                                 Spacer(modifier = Modifier.width(6.dp))
                             }

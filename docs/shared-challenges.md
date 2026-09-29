@@ -500,7 +500,7 @@ default that was chosen for the design rather than decided by the product.
 
 | Type | Can be shared | Shown progress | Ends | Presented as |
 |---|---|---|---|---|
-| Route | at its origin, leg 0, no paused leg; joining locks at the first progress | own; the crew is a ranking (server placements once decided; before that by progress, ties by join order) | the first arrival (server claim); everyone else ends at that moment with a placement, paused legs deleted | winner: "YOU WON THE RACE"; others: "ANNA WON · YOU FINISHED 2ND"; log stamp "1ST", "2ND", … |
+| Route | at its origin, leg 0, no paused leg; joining locks at the first progress | own; the crew is a ranking (server placements once decided; before that by progress, ties by join order) | the first arrival (server claim); everyone else ends at that moment with a placement, paused legs deleted | winner: "YOU WON THE RACE"; others: "ANNA WON · YOU FINISHED 2ND", the lifted card showing their own progress in silver or bronze under "2ND" rather than a full ring; log stamps "1ST" or "2ND" and "CREW ×N" |
 | Set | with an empty set | union over the current definition; the team bar credits each member to the first pilot, in join order, who visited it | the union is complete, by own landing (L2) or merge (P2) | team celebration, log stamp "CREW ×N" |
 | Distance | at 0 km | sum; a segmented bar in join order, own segment emphasised | the sum reaches the target, by own landing (L2) or merge (P2) | as set |
 | Streak | at 0 days | the crew's minimum; the modal lists each pilot's days and state (alive, at risk, broken) | merge only: minimum reaches the target, or one pilot is dead | completed as set; failed: shatter, "STREAK BROKEN · Anna missed a day" |

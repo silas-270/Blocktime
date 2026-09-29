@@ -256,7 +256,9 @@ internal fun ChallengePickerModal(
                 // online, so nothing online is offered. Haze rather than the Border token for the
                 // rule: on the dark surface the token is a shade of the card and vanished.
                 if (availability != OnlineFeatureAvailability.HIDDEN) {
-                    Spacer(modifier = Modifier.height(Spacing.Medium))
+                    // Tight on purpose: every dp here pushes the picker's top edge up, and past a
+                    // point the Free Mode row behind the scrim peeks out above the card.
+                    Spacer(modifier = Modifier.height(Spacing.Small))
                     HorizontalDivider(color = Haze.copy(alpha = 0.6f))
                     Spacer(modifier = Modifier.height(Spacing.Small))
                     JoinRoomRow(
@@ -413,7 +415,7 @@ private fun JoinRoomRow(
     val canLookUp = online && code.length == ROOM_CODE_LENGTH && lookup !is RoomLookupState.Loading
 
     CaptionLabel(text = "HAVE A CODE?")
-    Spacer(modifier = Modifier.height(Spacing.Small))
+    Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Small),
