@@ -40,9 +40,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.domain.CompletionPresentation
-import com.silas270.blocktime.ui.components.BadgeSize
-import com.silas270.blocktime.ui.components.BadgeVariant
-import com.silas270.blocktime.ui.components.FocusBadge
 import com.silas270.blocktime.ui.theme.Amber
 import com.silas270.blocktime.ui.theme.ChallengeGold
 import com.silas270.blocktime.ui.theme.DeepNavy
@@ -396,17 +393,10 @@ internal fun ChallengeCompletionOverlay(
 
         // A solo completion has no caption; a shared one says what happened, in the same fade
         // as the button so nothing appears before the card has settled.
-        if (copy.headlines.isNotEmpty() || copy.crewBadge != null) {
+        if (copy.headlines.isNotEmpty()) {
             PresentationCaption(cardRect = animatedRect, gapPx = buttonGapPx, alpha = animatedButtonAlpha) {
                 copy.headlines.forEach { headline ->
                     PresentationHeadline(text = headline, color = copy.headlineColor)
-                }
-                copy.crewBadge?.let { badge ->
-                    FocusBadge(
-                        text = badge,
-                        variant = BadgeVariant.Neutral,
-                        size = BadgeSize.Compact
-                    )
                 }
             }
         }
@@ -457,13 +447,12 @@ internal fun ChallengeCompletionOverlay(
 
 /**
  * Everything a [CompletionPresentation] changes about the overlay, resolved once per card: the
- * headline lines and badge above it, the button's label, and how much confetti in which colours.
+ * headline lines above it, the button's label, and how much confetti in which colours.
  * [headlines] is empty for no headline; each entry is drawn as one line that never wraps.
  */
 private class CelebrationCopy(
     val headlines: List<String>,
     val headlineColor: Color,
-    val crewBadge: String?,
     val buttonLabel: String,
     val confettiCount: Int,
     val confettiColors: List<Color>
@@ -473,7 +462,6 @@ private class CelebrationCopy(
             CompletionPresentation.Solo -> CelebrationCopy(
                 headlines = emptyList(),
                 headlineColor = OffWhite,
-                crewBadge = null,
                 buttonLabel = "CONGRATS",
                 confettiCount = ConfettiParticleCount,
                 confettiColors = ConfettiColors
@@ -481,7 +469,6 @@ private class CelebrationCopy(
             is CompletionPresentation.Team -> CelebrationCopy(
                 headlines = emptyList(),
                 headlineColor = OffWhite,
-                crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "CONGRATS",
                 confettiCount = ConfettiParticleCount,
                 confettiColors = ConfettiColors
@@ -489,7 +476,6 @@ private class CelebrationCopy(
             is CompletionPresentation.RaceWon -> CelebrationCopy(
                 headlines = listOf("YOU WON THE RACE"),
                 headlineColor = ChallengeGold,
-                crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "CONGRATS",
                 confettiCount = ConfettiParticleCount,
                 confettiColors = ConfettiColors
@@ -502,7 +488,6 @@ private class CelebrationCopy(
                     "YOU FINISHED ${presentation.place}${ordinalSuffix(presentation.place).uppercase(Locale.US)}",
                 ),
                 headlineColor = OffWhite,
-                crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "GG",
                 confettiCount = ConfettiParticleCount / 2,
                 confettiColors = PlacedConfettiColors

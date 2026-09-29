@@ -57,7 +57,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
 import com.silas270.blocktime.data.model.Challenge
-import com.silas270.blocktime.ui.screens.challenges.challengeOutcomeText
+import com.silas270.blocktime.ui.theme.participantColor
+import com.silas270.blocktime.ui.components.SegmentedProgressBar
+import com.silas270.blocktime.ui.components.ProgressMarker
+import com.silas270.blocktime.ui.components.MarkedProgressBar
+import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.raceRivals
+import com.silas270.blocktime.data.model.progressSegments
+import com.silas270.blocktime.data.model.isShared
+import com.silas270.blocktime.ui.screens.challenges.challengeProgressText
 import com.silas270.blocktime.data.repository.ChallengeOutcome
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
@@ -108,11 +116,10 @@ fun ChallengeOutcomeScreen(
 ) {
     BackHandler { onContinue() }
 
-    val progressLabels by produceState(emptyMap<Int, String>(), outcomes) {
+    val challenges by produceState(emptyMap<Int, Challenge>(), outcomes) {
         val lookup = loadChallenge ?: return@produceState
         value = outcomes.mapNotNull { outcome ->
             runCatching { lookup(outcome.challengeId) }.getOrNull()
-                ?.let(::outcomeProgressLabel)
                 ?.let { outcome.challengeId to it }
         }.toMap()
     }
@@ -196,7 +203,7 @@ fun ChallengeOutcomeScreen(
                         ChallengeOutcomeRow(
                             outcome = outcome,
                             animateIn = animateIn,
-                            progressLabel = progressLabels[outcome.challengeId]
+                            challenge = challenges[outcome.challengeId]
                         )
                     }
                 }
@@ -219,7 +226,7 @@ fun ChallengeOutcomeScreen(
 }
 
 @Composable
-private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, progressLabel: String?) {
+private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, challenge: Challenge?) {
     val isCompleted = outcome is ChallengeOutcome.Completed
     val oldProgress = when (outcome) {
         is ChallengeOutcome.Advanced -> outcome.oldProgress
@@ -262,59 +269,60 @@ private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, p
                 overflow = TextOverflow.Ellipsis
             )
         }
-        // Type and status as a plain text line under the name, not chips beside it: the chips
-        // looked like buttons, and squeezed the name down to "First Cro...".
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 20.dp + Spacing.Small)
-        ) {
+        if (isCompleted) {
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = Amber)) { append(challengeTypeLabel(outcome.type)) }
-                    if (isCompleted) {
-                        withStyle(SpanStyle(color = Haze)) { append("  ·  ") }
-                        withStyle(SpanStyle(color = Success)) { append("COMPLETED") }
-                    }
-                },
+                text = "COMPLETED",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 0.5.sp
-                )
+                ),
+                color = Success,
+                modifier = Modifier.padding(start = 20.dp + Spacing.Small)
             )
-            // A team bar says whose it is (docs/shared-challenges.md "Landing"): the progress
-            // shown is the crew's, and without the badge a small own contribution looks like a
-            // big jump.
-            if (outcome.isShared) {
-                Spacer(modifier = Modifier.width(Spacing.Small))
-                FocusBadge(
-                    text = "CREW ×${outcome.crewSize}",
-                    variant = BadgeVariant.Neutral,
-                    style = BadgeStyle.Translucent,
-                    size = BadgeSize.Compact
-                )
-            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        ChallengeProgressBar(progress = animatedProgress, fillColor = barColor, height = 14.dp)
+        // The bar tells whose progress it is, as everywhere else: a shared pool is split by pilot,
+        // a shared race shows the other pilots as dots on the pilot's own bar.
+        val segments = if (challenge != null && challenge.isShared() && challenge.type != ChallengeType.ROUTE) {
+            challenge.progressSegments()
+        } else {
+            emptyList()
+        }
+        val rivals = challenge?.raceRivals().orEmpty()
+        when {
+            segments.isNotEmpty() -> SegmentedProgressBar(
+                segments = segments,
+                height = 14.dp,
+                progress = animatedProgress
+            )
+            rivals.isNotEmpty() -> MarkedProgressBar(
+                progress = animatedProgress,
+                markers = rivals.map { ProgressMarker(it.routeProgress, participantColor(it.colorIndex, false)) },
+                fillColor = barColor,
+                height = 14.dp
+            )
+            else -> ChallengeProgressBar(progress = animatedProgress, fillColor = barColor, height = 14.dp)
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Distance and route in percent, set and streak in counts, like every other screen.
         val percent = if (isCompleted) "100%" else "${(newProgress * 100).roundToInt()}%"
+        val value = when (outcome.type) {
+            ChallengeType.DISTANCE, ChallengeType.ROUTE -> percent
+            else -> challenge?.let(::challengeProgressText) ?: percent
+        }
         FocusInfoRow(
             label = "PROGRESS",
-            value = progressLabel?.let { "$it · $percent" } ?: percent,
+            value = value,
             valueColor = barColor
         )
     }
 }
-
-/** The challenge's progress in its own units, or null for the bare percentage; see
- *  [challengeOutcomeText], which holds the wording (a shared pool reads the team's count). */
-private fun outcomeProgressLabel(challenge: Challenge): String? = challengeOutcomeText(challenge)
 
 private data class ConfettiParticle(
     val startXFraction: Float,

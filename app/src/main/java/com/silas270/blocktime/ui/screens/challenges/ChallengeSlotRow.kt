@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontFamily
@@ -47,18 +47,22 @@ import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.displayProgressFraction
 import com.silas270.blocktime.data.model.isShared
-import com.silas270.blocktime.data.model.racePlacement
-import com.silas270.blocktime.data.model.teamVisitedMembers
+import com.silas270.blocktime.data.model.progressSegments
+import com.silas270.blocktime.data.model.raceRivals
 import com.silas270.blocktime.ui.components.CardVariant
 import com.silas270.blocktime.ui.components.FocusCard
+import com.silas270.blocktime.ui.components.ProgressMarker
 import com.silas270.blocktime.ui.components.RingProgress
+import com.silas270.blocktime.ui.components.RingSegment
 import com.silas270.blocktime.ui.components.icon
 import com.silas270.blocktime.ui.theme.Amber
 import com.silas270.blocktime.ui.theme.DeepNavy
+import com.silas270.blocktime.ui.theme.Danger
 import com.silas270.blocktime.ui.theme.Haze
 import com.silas270.blocktime.ui.theme.OffWhite
 import com.silas270.blocktime.ui.theme.Slate
 import com.silas270.blocktime.ui.theme.Spacing
+import com.silas270.blocktime.ui.theme.participantColor
 import com.silas270.blocktime.data.repository.MAX_ACTIVE_CHALLENGES
 
 /**
@@ -133,9 +137,9 @@ private fun EmptySlot(onClick: () -> Unit) {
 
 /**
  * One filled slot: the ring shows what the screens show, the team's progress for a shared pool
- * and the pilot's own otherwise ([displayProgressFraction]). A shared row wears a crew badge top
- * left, a race its placement instead; a paused leg's badge top right only while the row is
- * still active. A failed streak, waiting for its presentation, draws its ring in Haze under
+ * and the pilot's own otherwise ([displayProgressFraction]). A shared pool's ring is split into
+ * one arc per crew member; a paused leg's badge sits top right only while the row is still
+ * active. A failed streak, waiting for its presentation, draws its ring in Haze under
  * "BROKEN" (docs/shared-challenges.md "Presentation").
  */
 @Composable
@@ -152,14 +156,29 @@ private fun FilledSlot(
         label = "challenge_slot_${challenge.id}"
     )
 
+    // A shared pool's ring is split by who earned what, as its bar in the info modal is; that is
+    // the whole sign of a shared row. A race, a solo row and a pool without a cache keep the one
+    // colour. The colours are read here, in composition, so a theme switch repaints the ring.
+    val ringSegments = if (shared && !failed && challenge.type != ChallengeType.ROUTE) {
+        challenge.progressSegments().map { RingSegment(it.fraction, participantColor(it.participant.colorIndex, it.isSelf)) }
+    } else {
+        emptyList()
+    }
+
+    // A race has no pool to slice; its rivals are dots on the ring at their progress.
+    val rivalMarkers = if (shared && active) {
+        challenge.raceRivals().map { ProgressMarker(it.routeProgress, participantColor(it.colorIndex, false)) }
+    } else {
+        emptyList()
+    }
+
     val labelText = when {
         failed -> "BROKEN"
-        // A shared set counts the union, like its ring.
-        challenge.type == ChallengeType.SET_COMPLETION && shared ->
-            "${challenge.teamVisitedMembers().size}/${challenge.setTotalMembers}"
-        challenge.type == ChallengeType.SET_COMPLETION ->
-            "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
-        else -> "${(animatedProgress * 100).toInt()}%"
+        // Percent for distance and route, counts for set and streak (challengeRingLabel); the
+        // number follows the ring's own animation only for the percentage types.
+        challenge.type == ChallengeType.DISTANCE || challenge.type == ChallengeType.ROUTE ->
+            "${(animatedProgress * 100).toInt()}%"
+        else -> challengeRingLabel(challenge)
     }
 
     FocusCard(
@@ -183,52 +202,20 @@ private fun FilledSlot(
                 modifier = Modifier.fillMaxSize().padding(Spacing.Large)
             )
             RingProgress(
-                progress = animatedProgress,
+                // A broken streak is a whole grey ring, whatever it had reached: the state reads at a
+                // glance instead of looking like an empty slot.
+                progress = if (failed) 1f else animatedProgress,
                 modifier = Modifier.fillMaxSize().padding(Spacing.Small),
                 strokeWidth = 5.dp,
-                fillColor = if (failed) Haze else Amber
+                fillColor = if (failed) Haze else Amber,
+                segments = ringSegments,
+                markers = rivalMarkers
             ) {
                 AutoScalingCenterText(
                     text = labelText,
+                    color = if (failed) Danger else OffWhite,
                     modifier = Modifier.padding(horizontal = 6.dp)
                 )
-            }
-
-            // A shared row says so before the tap: the crew icon for a pool, the pilot's place
-            // for a race ("2nd"), mirroring the pause badge on the other corner.
-            if (shared) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(Amber),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val placement = if (challenge.type == ChallengeType.ROUTE) challenge.racePlacement() else null
-                    if (placement != null) {
-                        Text(
-                            text = "$placement${ordinalSuffix(placement)}",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 7.sp,
-                                lineHeight = 8.sp
-                            ),
-                            color = DeepNavy,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Outlined.Groups,
-                            contentDescription = "Shared challenge",
-                            tint = DeepNavy,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
-                }
             }
 
             // A Route challenge with a leg paused mid-air: tapping it offers RESUME rather than a
@@ -259,7 +246,8 @@ private fun FilledSlot(
 @Composable
 private fun AutoScalingCenterText(
     text: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    color: Color = OffWhite
 ) {
     val initialSize = when {
         text.length <= 3 -> 15.sp
@@ -273,7 +261,7 @@ private fun AutoScalingCenterText(
 
     Text(
         text = text,
-        color = OffWhite,
+        color = color,
         maxLines = 1,
         softWrap = false,
         textAlign = TextAlign.Center,

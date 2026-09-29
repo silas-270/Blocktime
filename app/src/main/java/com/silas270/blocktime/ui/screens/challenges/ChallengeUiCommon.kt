@@ -12,6 +12,7 @@ import com.silas270.blocktime.ui.components.ModalTitle
 import com.silas270.blocktime.ui.components.PrimaryActionButton
 import com.silas270.blocktime.ui.components.ScrimCardModal
 import com.silas270.blocktime.ui.theme.Haze
+import com.silas270.blocktime.ui.theme.OffWhite
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,9 +26,6 @@ import androidx.compose.foundation.layout.Spacer
  * `ModalButtonRow`, `ModalTitle`) moved to `ui/components/ActionButtons.kt` so screens outside
  * challenges can share them too.
  */
-
-/** The one-line progress summary; see [challengeStatusText], which holds the wording. */
-internal fun challengeSubtitle(challenge: Challenge): String = challengeStatusText(challenge)
 
 /** "1st", "2nd", "3rd", "4th", "11th", "22nd": the suffix for a race placement. */
 internal fun ordinalSuffix(n: Int): String {
@@ -94,13 +92,20 @@ internal fun AbandonConfirmModal(challenge: Challenge, onConfirm: () -> Unit, on
         Spacer(modifier = Modifier.height(8.dp))
         // A shared row says what happens to the others (docs/shared-challenges.md, A2): the room
         // outlives the pilot, so "removed entirely" alone would read as ending it for the crew.
-        val sharedNote = if (challenge.isShared()) " Your crew keeps the challenge; you leave the room." else ""
         Text(
-            text = "\"${challenge.name}\" will be removed entirely, freeing up a challenge slot. " +
-                "This can't be undone - starting it again later begins from zero." + sharedNote,
+            text = "\"${challenge.name}\" will be removed and its slot freed. " +
+                "Starting it again begins from zero.",
             style = MaterialTheme.typography.bodyMedium,
             color = Haze
         )
+        if (challenge.isShared()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Your crew keeps the challenge; you leave the room.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OffWhite
+            )
+        }
         Spacer(modifier = Modifier.height(24.dp))
         ModalButtonRow(
             dismissText = "KEEP IT",

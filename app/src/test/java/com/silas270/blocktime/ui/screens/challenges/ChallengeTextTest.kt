@@ -15,9 +15,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The progress lines beside the bars: a shared pool reads the team total with the pilot's own
- * share after it, because the bar and percentage beside it are the team's; a race and every
- * solo row read the pilot's own progress, unchanged.
+ * The progress texts beside the bars: distance and route in percent, set and streak in counts; a
+ * shared pool reads the team's value, a race and every solo row the pilot's own.
  */
 class ChallengeTextTest {
 
@@ -116,44 +115,45 @@ class ChallengeTextTest {
     )
 
     @Test
-    fun `solo status reads own progress`() {
-        assertEquals("270 mi / 1,000 mi", challengeStatusText(distance(270.0, shared = false)))
-        assertEquals("2/7 visited", challengeStatusText(set(shared = false)))
-        assertEquals("3 of 3 days", challengeStatusText(streak(shared = false)))
-        assertEquals("DXB → SYD", challengeStatusText(race(shared = false)))
+    fun `solo progress is percent for distance and route, counts for set and streak`() {
+        assertEquals("27%", challengeProgressText(distance(270.0, shared = false)))
+        assertEquals("2/7 visited", challengeProgressText(set(shared = false)))
+        assertEquals("3 of 3 days", challengeProgressText(streak(shared = false)))
+        assertEquals("40%", challengeProgressText(race(shared = false)))
     }
 
     @Test
-    fun `shared pool status reads the team total with the pilot's own share`() {
-        assertEquals("581 / 1,000 mi · you 270 mi", challengeStatusText(distance(270.0, shared = true)))
+    fun `shared pool progress reads the team value and never a personal share`() {
+        // 270 own + 311 from Anna of a 1,000 mi target.
+        assertEquals("58%", challengeProgressText(distance(270.0, shared = true)))
         // Antarctica and XX are no members any more; the leaver's South America stays.
-        assertEquals("3/6 visited · you 1", challengeStatusText(set(shared = true)))
-        assertEquals("2 of 3 days · you 3", challengeStatusText(streak(shared = true)))
+        assertEquals("3/6 visited", challengeProgressText(set(shared = true)))
+        // The group streak is the minimum: Anna's 2 of 3 days.
+        assertEquals("2 of 3 days", challengeProgressText(streak(shared = true)))
     }
 
     @Test
-    fun `shared race status reads own progress`() {
-        assertEquals("DXB → SYD", challengeStatusText(race(shared = true)))
+    fun `shared race progress reads own progress`() {
+        assertEquals("40%", challengeProgressText(race(shared = true)))
     }
 
     @Test
-    fun `solo outcome reads own progress`() {
-        assertEquals("270 / 1,000 mi", challengeOutcomeText(distance(270.0, shared = false)))
-        assertEquals("2/7 visited", challengeOutcomeText(set(shared = false)))
-        assertEquals("3 of 3 days", challengeOutcomeText(streak(shared = false)))
-        assertNull(challengeOutcomeText(race(shared = false)))
+    fun `progress caps at the target`() {
+        assertEquals("100%", challengeProgressText(distance(800.0, shared = true)))
     }
 
     @Test
-    fun `shared pool outcome reads the team total with the pilot's own share`() {
-        assertEquals("581 / 1,000 mi · you 270 mi", challengeOutcomeText(distance(270.0, shared = true)))
-        assertEquals("3/6 visited · you 1", challengeOutcomeText(set(shared = true)))
-        assertEquals("2 of 3 days · you 3", challengeOutcomeText(streak(shared = true)))
-        assertNull(challengeOutcomeText(race(shared = true)))
+    fun `ring label is short for set and streak`() {
+        assertEquals("27%", challengeRingLabel(distance(270.0, shared = false)))
+        assertEquals("3/6", challengeRingLabel(set(shared = true)))
+        assertEquals("2/3", challengeRingLabel(streak(shared = true)))
+        assertEquals("40%", challengeRingLabel(race(shared = false)))
     }
 
     @Test
-    fun `shared outcome caps the team total at the target`() {
-        assertEquals("1,000 / 1,000 mi · you 800 mi", challengeOutcomeText(distance(800.0, shared = true)))
+    fun `route text names the hop and only a route has one`() {
+        assertEquals("DXB → SYD", challengeRouteText(race(shared = false)))
+        assertNull(challengeRouteText(distance(270.0, shared = false)))
+        assertNull(challengeRouteText(streak(shared = false)))
     }
 }

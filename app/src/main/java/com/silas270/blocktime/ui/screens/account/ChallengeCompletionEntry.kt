@@ -22,18 +22,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import com.silas270.blocktime.data.model.Challenge
-import com.silas270.blocktime.data.model.ChallengeSource
 import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.SharedOutcome
-import com.silas270.blocktime.data.model.crewSize
 import com.silas270.blocktime.data.model.isShared
 import com.silas270.blocktime.data.model.racePlacement
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
 import com.silas270.blocktime.ui.components.BadgeVariant
 import com.silas270.blocktime.ui.components.FocusBadge
-import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.screens.challenges.ordinalSuffix
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -66,8 +63,7 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Row 1: DATE on left, challenge-type stamp on right (mirrors LogbookEntry's flight-
-            // number stamp)
+            // Row 1: DATE on left, the race place stamp on right when there is one
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -82,20 +78,10 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
                     ),
                     color = inkFaint
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // A shared row carries a second stamp (docs/shared-challenges.md "Per
-                    // type"): the pilot's place in a race, or how big the crew was for a pool.
-                    sharedStamps(challenge).forEach { stamp ->
-                        FocusBadge(
-                            text = stamp,
-                            variant = BadgeVariant.Danger,
-                            style = BadgeStyle.Stamp,
-                            size = BadgeSize.Compact
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
+                // The only stamp is the place in a finished shared race; every other entry has none.
+                finishedRacePlace(challenge)?.let { place ->
                     FocusBadge(
-                        text = challengeTypeLabel(challenge.type),
+                        text = placeStamp(place),
                         variant = BadgeVariant.Danger,
                         style = BadgeStyle.Stamp,
                         size = BadgeSize.Compact
@@ -119,15 +105,14 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Row 3: SOURCE (curated/custom). There used to be a TYPE cell beside it, repeating
-            // the stamp in row 1 word for word.
+            // Row 3: whether it was flown alone or with a crew.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 LogbookDataCell(
-                    label = "SOURCE",
-                    value = if (challenge.source == ChallengeSource.CURATED) "CURATED" else "CUSTOM",
+                    label = "MODE",
+                    value = if (challenge.isShared()) "TEAM" else "SINGLE",
                     labelColor = inkFaint,
                     valueColor = inkMid
                 )
@@ -154,17 +139,3 @@ internal fun finishedRacePlace(challenge: Challenge): Int? {
 
 /** "2ND" for a place in a race. */
 internal fun placeStamp(place: Int): String = "$place${ordinalSuffix(place).uppercase(Locale.US)}"
-
-/**
- * The stamps a shared row wears beside its type in the log: the place and the crew for a race,
- * the crew for a pool, none for a solo row. A race carries the crew too because its celebration
- * showed it, won or lost, and the entry is what that celebration lands as. Internal so the
- * completion overlay's morph preview shows the same stamps.
- */
-internal fun sharedStamps(challenge: Challenge): List<String> {
-    if (!challenge.isShared()) return emptyList()
-    val crew = "CREW ×${challenge.crewSize()}"
-    if (challenge.type != ChallengeType.ROUTE) return listOf(crew)
-    val place = finishedRacePlace(challenge) ?: return listOf(crew)
-    return listOf(placeStamp(place), crew)
-}

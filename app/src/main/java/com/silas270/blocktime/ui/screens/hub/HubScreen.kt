@@ -67,6 +67,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import com.silas270.blocktime.data.model.raceRivals
+import com.silas270.blocktime.ui.components.MarkedProgressBar
+import com.silas270.blocktime.ui.components.ProgressMarker
+import com.silas270.blocktime.ui.theme.participantColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -79,6 +86,7 @@ import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.model.crewSize
+import com.silas270.blocktime.data.model.displayProgressFraction
 import com.silas270.blocktime.data.model.isShared
 import com.silas270.blocktime.data.model.others
 import com.silas270.blocktime.data.model.progressFraction
@@ -97,7 +105,8 @@ import com.silas270.blocktime.ui.components.OfflineBadge
 import com.silas270.blocktime.ui.components.PrimaryActionButton
 import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.components.icon
-import com.silas270.blocktime.ui.screens.challenges.challengeSubtitle
+import com.silas270.blocktime.ui.screens.challenges.challengeProgressText
+import com.silas270.blocktime.ui.screens.challenges.challengeRouteText
 import com.silas270.blocktime.ui.screens.challenges.ordinalSuffix
 import com.silas270.blocktime.ui.theme.Amber
 import com.silas270.blocktime.ui.theme.Border
@@ -569,43 +578,71 @@ private fun FocusedChallengeCard(challenge: Challenge, onExit: () -> Unit, modif
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        ChallengeProgressBar(
-            progress = challenge.progressFraction(),
-            trackColor = DeepNavy,
-            fillColor = Amber,
-            modifier = Modifier.fillMaxWidth(),
-            height = 6.dp
-        )
+        // A shared race adds every other pilot as a dot in their colour on the bar, as the info
+        // modal does; anything else keeps the plain bar.
+        val rivals = challenge.raceRivals()
+        if (rivals.isNotEmpty()) {
+            MarkedProgressBar(
+                progress = challenge.displayProgressFraction(),
+                markers = rivals.map { ProgressMarker(it.routeProgress, participantColor(it.colorIndex, false)) },
+                trackColor = DeepNavy,
+                fillColor = Amber,
+                modifier = Modifier.fillMaxWidth(),
+                height = 6.dp
+            )
+        } else {
+            ChallengeProgressBar(
+                progress = challenge.displayProgressFraction(),
+                trackColor = DeepNavy,
+                fillColor = Amber,
+                modifier = Modifier.fillMaxWidth(),
+                height = 6.dp
+            )
+        }
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        // Percent for distance and route, counts for set and streak, never both: a route also says
+        // where it is headed on the left, a distance has only the percentage on the right.
+        val leftText = when (challenge.type) {
+            ChallengeType.ROUTE -> challengeRouteText(challenge)
+            ChallengeType.DISTANCE -> null
+            else -> challengeProgressText(challenge)
+        }
+        val showPercent = challenge.type == ChallengeType.ROUTE || challenge.type == ChallengeType.DISTANCE
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = challengeSubtitle(challenge),
+                text = leftText.orEmpty(),
                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                 color = Haze
             )
-            val pct = (challenge.progressFraction() * 100).toInt()
-            Text(
-                text = "$pct%",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                ),
-                color = if (pct > 0) Amber else Haze.copy(alpha = 0.6f)
-            )
+            val pct = (challenge.displayProgressFraction() * 100).toInt()
+            if (showPercent) {
+                Text(
+                    text = "$pct%",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = if (pct > 0) Amber else Haze.copy(alpha = 0.6f)
+                )
+            }
         }
 
         // A race says where the pilot stands and who is ahead (docs/shared-challenges.md "Per
         // type"); a pool's team bar has no leader to name, so only a shared route gets the line.
-        raceStandingLine(challenge)?.let { line ->
+        raceStandingLine(challenge)?.let { (place, leader) ->
             Spacer(modifier = Modifier.height(2.dp))
+            // The place is the news, so it is bright; who leads stays quiet beside it.
             Text(
-                text = line,
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = OffWhite, fontWeight = FontWeight.Bold)) { append(place) }
+                    append(" · $leader")
+                },
                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                 color = Haze
             )
@@ -614,23 +651,24 @@ private fun FocusedChallengeCard(challenge: Challenge, onExit: () -> Unit, modif
 }
 
 /**
- * "2nd of 3 · Anna leads", or "1st of 3 · you lead", for a shared route with a crew in its
- * cache; null for everything else. The leader is whoever of the crew still in the race has the
+ * "2nd of 3" and "Anna leads", or "1st of 3" and "you lead", for a shared route with a crew in
+ * its cache, shown as "2nd of 3 · Anna leads"; null for everything else. The leader is whoever of the crew still in the race has the
  * most route progress, self's from the row, so it agrees with [racePlacement].
  */
-private fun raceStandingLine(challenge: Challenge): String? {
+private fun raceStandingLine(challenge: Challenge): Pair<String, String>? {
     if (!challenge.isShared() || challenge.type != ChallengeType.ROUTE) return null
     val place = challenge.racePlacement() ?: return null
     val others = challenge.others()
     val crewSize = challenge.crewSize()
     if (crewSize < 2) return null
     val bestOther = others.maxByOrNull { it.routeProgress }
+    // Level with the best rival, or ahead of every one, is leading; only a rival strictly ahead is named.
     val leader = if (bestOther == null || challenge.progressFraction() >= bestOther.routeProgress) {
         "you lead"
     } else {
         "${bestOther.username.ifBlank { bestOther.userCode }} leads"
     }
-    return "$place${ordinalSuffix(place)} of $crewSize · $leader"
+    return "$place${ordinalSuffix(place)} of $crewSize" to leader
 }
 
 @Deprecated("Use FocusStatItem instead", ReplaceWith("FocusStatItem(value, label)", "com.silas270.blocktime.ui.components.FocusStatItem"))

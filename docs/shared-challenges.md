@@ -213,6 +213,9 @@ minimum and a race ranking count; `contributors()` is everyone but self, leavers
 pool sums over, because a pilot who leaves takes nothing back. `crewSize()` is `others()` plus
 one, so it is right even before the cache holds the pilot's own snapshot, and 1 for a solo row.
 
+The info modal lists the crew by contribution instead (most first, leavers last, a race by
+placement), so the pilot's own row is not always on top there.
+
 `progressSegments()` cuts the team bar into one slice per participant in join order: a pilot's
 share of the distance target, or the set members that pilot was the first, in join order, to bring
 in, so the slices add up to the union. `racePlacement()` is the server's placement once the room is

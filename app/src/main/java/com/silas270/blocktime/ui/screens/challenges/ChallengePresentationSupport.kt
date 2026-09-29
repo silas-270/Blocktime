@@ -46,10 +46,14 @@ import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.displayProgressFraction
 import com.silas270.blocktime.ui.components.RingProgress
+import com.silas270.blocktime.data.model.isShared
+import com.silas270.blocktime.data.model.progressSegments
+import com.silas270.blocktime.ui.theme.participantColor
+import com.silas270.blocktime.ui.components.RingSegment
 import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.components.icon
 import com.silas270.blocktime.ui.theme.Amber
-import com.silas270.blocktime.ui.screens.account.sharedStamps
+import com.silas270.blocktime.ui.screens.account.finishedRacePlace
 import com.silas270.blocktime.ui.screens.account.placeStamp
 import com.silas270.blocktime.ui.screens.account.finishedRacePlace
 import com.silas270.blocktime.ui.theme.Bronze
@@ -231,9 +235,19 @@ internal fun CelebrationCard(
     val slotLabelText = when {
         failed -> "BROKEN"
         lostPlace != null -> placeStamp(lostPlace)
-        challenge.type == ChallengeType.SET_COMPLETION ->
-            "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
+        // Percent for distance and route, counts for set and streak, as in the slot.
+        challenge.type == ChallengeType.SET_COMPLETION || challenge.type == ChallengeType.STREAK ->
+            challengeRingLabel(challenge)
         else -> "100%"
+    }
+    // A shared pool's ring is split by pilot, as in its slot, so the celebration shows whose
+    // team it was without a caption; a race, a broken streak and a solo row stay one colour.
+    val ringSegments = if (challenge.isShared() && !failed && lostPlace == null && !partialRing &&
+        challenge.type != ChallengeType.ROUTE
+    ) {
+        challenge.progressSegments().map { RingSegment(it.fraction, participantColor(it.participant.colorIndex, it.isSelf)) }
+    } else {
+        emptyList()
     }
 
     val dateStr = remember(challenge.completedAt, challenge.startedAt) {
@@ -284,12 +298,15 @@ internal fun CelebrationCard(
                 // Progress ring, full and Amber for a completion, partial for a broken streak or a lost
                 // race - matches FilledSlot's Spacing.Small (8.dp) and 5.dp stroke
                 RingProgress(
-                    progress = if (partialRing) challenge.displayProgressFraction() else 1f,
+                    // Whole ring for every outcome: the colour says which (gold, silver or bronze place,
+                    // grey for a break), whatever the pilot had reached.
+                    progress = 1f,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(Spacing.Small * scale),
                     strokeWidth = 5.dp * scale,
-                    fillColor = ringColor
+                    fillColor = ringColor,
+                    segments = ringSegments
                 ) {
                     val baseFontSize = when {
                         slotLabelText.length <= 3 -> 15f
@@ -350,14 +367,9 @@ internal fun CelebrationCard(
                             ),
                             color = LogbookInkFaint
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // The same second stamp the finished entry wears for a shared row
-                            // (ChallengeCompletionEntry), so the card lands as what it becomes.
-                            sharedStamps(challenge).forEach { stamp ->
-                                LogStampPreview(text = stamp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-                            LogStampPreview(text = challengeTypeLabel(challenge.type))
+                        // The same single stamp the finished entry wears: the place in a shared race.
+                        finishedRacePlace(challenge)?.let { place ->
+                            LogStampPreview(text = placeStamp(place))
                         }
                     }
                     Text(
