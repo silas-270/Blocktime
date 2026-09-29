@@ -43,11 +43,17 @@ same way everywhere.
 
 It combines two inputs:
 
-- **`ConnectivityMonitor`**, a default-network callback. The device counts as connected only when
-  the network is both `INTERNET`-capable and `VALIDATED`. A captive portal or a Wi-Fi network with
-  no uplink is offline, because tile downloads there would hang until they timed out. The value is
-  read synchronously in the constructor, so the first frame already shows the right state, and then
-  kept current by the callback.
+- **`ConnectivityMonitor`**, two network callbacks. The device counts as connected only when the
+  default network is `INTERNET`-capable and `VALIDATED` **and** so is at least one physical network
+  (Wi-Fi, cellular, ethernet; never a VPN). A captive portal or a Wi-Fi network with no uplink is
+  offline, because tile downloads there would hang until they timed out. The physical check is
+  there for VPNs: with one on, the default network is the tunnel, and Android keeps the tunnel
+  marked validated after Wi-Fi and mobile data are gone, so the default network alone would read
+  connected with nothing getting through. The default check is there for the opposite case, a VPN
+  that is down with its kill switch on, which leaves a working Wi-Fi the app cannot use. The rule
+  is `NetworkUsability`, tested without Android. The value is read synchronously in the
+  constructor, so the first frame already shows the right state, and then kept current by the
+  callbacks.
 - **The "Offline maps" switch** in Settings, a data saver that forces offline mode on a working
   connection.
 
