@@ -179,14 +179,19 @@ fun Challenge.progressSegments(): List<ProgressSegment> {
     }
 }
 
+/** The other pilots still in a shared race, each with the route progress they last reported: what
+ *  the pilot's own bar or ring shows as dots. Empty for anything that is not a shared route. */
+fun Challenge.raceRivals(): List<ParticipantSnapshot> =
+    if (type == ChallengeType.ROUTE && isShared()) others() else emptyList()
+
 /**
  * The pilot's place in a race, 1-based, or null for anything that is not a shared route.
  *
  * Once the room is decided the server's placements are the truth: the winner first, the rest by
  * how far they got (docs/shared-challenges.md "Protocol"). While the race is open the place is
  * the pilot's rank by route progress among the crew still in it, self's progress from the row
- * and the others' from the cache, ties broken by join order. Pilots who left are out of the
- * ranking. A decided room whose placements do not list the pilot (joined after the finish, or
+ * and the others' from the cache; pilots who are level share a place. Pilots who left are out of
+ * the ranking. A decided room whose placements do not list the pilot (joined after the finish, or
  * an older server) falls back to the open-race rank rather than reporting nothing.
  */
 fun Challenge.racePlacement(): Int? {
@@ -197,14 +202,11 @@ fun Challenge.racePlacement(): Int? {
         val index = outcome.placements.indexOf(cache.selfCode)
         if (index >= 0) return index + 1
     }
-    val self = selfSnapshot(cache)
-    val standings = (others() + self)
-        .map { participant ->
-            val progress = if (participant.userCode == cache.selfCode) progressFraction() else participant.routeProgress
-            Triple(participant.userCode, progress, participant.colorIndex)
-        }
-        .sortedWith(compareByDescending<Triple<String, Float, Int>> { it.second }.thenBy { it.third })
-    return standings.indexOfFirst { it.first == cache.selfCode } + 1
+    // Ties share a place: a pilot stands behind only those strictly ahead, so a race nobody has
+    // started yet has everyone first, and nobody who is level with the leader is called third.
+    val ownProgress = progressFraction()
+    val ahead = others().count { it.routeProgress > ownProgress }
+    return ahead + 1
 }
 
 /** The cached snapshot of self for its name and colour, or a placeholder carrying only the

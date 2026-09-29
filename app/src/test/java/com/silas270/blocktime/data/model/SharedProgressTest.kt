@@ -297,6 +297,22 @@ class SharedProgressTest {
     }
 
     @Test
+    fun `pilots who are level share a place`() {
+        // Nobody has started: everyone is first, not "3rd" for the pilot who joined last.
+        val fresh = route(
+            0f,
+            cache(ChallengeType.ROUTE, snapshot(SELF, 0), snapshot(ANNA, 1), snapshot(BOB, 2))
+        )
+        assertEquals(1, fresh.racePlacement())
+
+        // Level with the leader is first; one strictly ahead makes it second.
+        val level = route(0.5f, cache(ChallengeType.ROUTE, snapshot(SELF, 0), snapshot(ANNA, 1, routeProgress = 0.5f)))
+        assertEquals(1, level.racePlacement())
+        val behind = route(0.5f, cache(ChallengeType.ROUTE, snapshot(SELF, 0), snapshot(ANNA, 1, routeProgress = 0.6f)))
+        assertEquals(2, behind.racePlacement())
+    }
+
+    @Test
     fun `race placement is null when not shared or not a race`() {
         assertNull(route(0.5f, null, roomCode = null).racePlacement())
         assertNull(route(0.5f, null).racePlacement())
