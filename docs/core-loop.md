@@ -208,7 +208,9 @@ for the channel to resolve, up to `LANDING_RESULT_TIMEOUT_MS` (5 s), and then:
 
 - `LandingResult.ChallengesAffected` leads to the Challenge Outcome screen, which animates each
   challenge's bar from its old value to its new one;
-- `LandingResult.None` goes straight to the Hub.
+- `LandingResult.None` goes straight to the Hub, unless a shared challenge finished during the
+  flight and still waits to be presented, in which case it goes to Challenges
+  (`resolveArrivalDestination`, [shared-challenges.md](shared-challenges.md#landing)).
 
 The timeout bounds a pathological case rather than racing a healthy check, which resolves well
 within it. If it is ever reached, the pilot continues to the Hub and the event is logged.

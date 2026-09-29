@@ -1,8 +1,10 @@
 # Network use and offline mode
 
-Blocktime has no server and no account. It makes exactly two kinds of outbound request, both
-optional, and the app is fully usable without either. This file lists them, explains how the app
-decides it is offline, and what changes when it is.
+Blocktime has no account, and no server unless the pilot opts in to shared challenges. Without
+that switch it makes exactly two kinds of outbound request, both optional, and the app is fully
+usable without either; with it, a third goes to the room server, and the app is still fully usable
+without that one. This file lists them, explains how the app decides it is offline, what changes
+when it is, and how the room server is reached.
 
 ## What goes out
 
@@ -10,6 +12,7 @@ decides it is offline, and what changes when it is.
 |---|---|---|---|
 | Map tiles | CesiumRS, inside the native library | In-Flight, with the Standard or Satellite style | the globe shows the built-in offline map |
 | One destination photo | `PexelsDestinationPhotoRepository` | during a flight, once per flight | the arrival screen has a plain background |
+| Room sync | `SharedChallengeSyncer` and the share, look-up and join actions, through `RoomApi` | only with "Shared challenges" on and a server in the build, at the sync moments | a shared challenge runs as a normal local challenge |
 
 Everything else is local: the airport and route data are bundled, the headless globes are drawn
 from the vector map in the library, and the 2D world map is an asset.
@@ -126,3 +129,51 @@ no one. There is no caching layer: one photo per flight is fetched once and forg
 
 The query building and response parsing are separate internal functions so that
 `PexelsDestinationPhotoRepositoryTest` can check them without a network.
+
+## Shared challenges server
+
+The one server the app can talk to is the room server behind shared challenges, and only when
+two things hold: the build has a `ROOM_SERVER_URL`, and the pilot has switched "Shared
+challenges" on in Settings. **A blank `ROOM_SERVER_URL` means no sharing UI at all**: the Settings
+row, the share button and the join field are absent, not dimmed, because a control that could
+never do anything is worse than none. The URL comes from `local.properties` at build time and is
+compiled into `BuildConfig`, like the Pexels key, so anyone can point a build at their own server.
+How rooms work is the subject of [shared-challenges.md](shared-challenges.md); this section is
+only about the wire.
+
+The server is a key-value store with five routes (`RoomApi`), and it knows nothing about flights:
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/health` | the probe |
+| POST | `/rooms` | creates a room from a definition and the creator's snapshot; the reply is the room with its six-character code |
+| GET | `/rooms/{code}` | the current room state, or 404 |
+| PUT | `/rooms/{code}/participants/{userCode}` | upserts the pilot's own snapshot, with an optional completion or failure claim; a stranger's first put is the join; the reply is the fresh room state |
+| DELETE | `/rooms/{code}/participants/{userCode}` | marks the pilot as left; their snapshot stays |
+
+Every request carries the pilot code as `X-Pilot` and a locally generated secret as
+`Authorization: Bearer`. The HTTP client itself (`HttpRoomApi`) is not shipped yet: today the
+interface is implemented by `NoRoomApi` (no server; every call answers *unreachable*) and by the
+in-memory `FakeRoomApi` that unit tests and a debug build without a URL use. A release build with
+a URL uses `NoRoomApi` too until the client exists
+([shared-challenges.md](shared-challenges.md#protocol)).
+
+### The second signal
+
+`OfflineModeController` answers "is the *device* offline", and it is the wrong question for the
+room server: the map must keep working when our server is dead but the internet is fine, and
+sharing must keep working when data saver is on. So `ServerReachability` (`data/network/`) is a
+second, separate signal, the only place that decides whether *our server* answers. Its state is
+`NOT_CONFIGURED` without a URL, `DISABLED` with the switch off, `DEVICE_OFFLINE` without a
+validated connection, and otherwise the last probe result: `UNKNOWN`, `REACHABLE` or
+`UNREACHABLE`.
+
+**It reads the raw `isConnected` value, never `NetworkMode`.** `NetworkMode` reports
+`OFFLINE_DATA_SAVER` before it looks at connectivity, and would make an offline device look like
+"server not reachable". **Data saver does not block sync**: a room is under 4 KB, and the switch is
+about map tiles.
+
+Nothing polls. A probe (`GET /health`) runs at the start of each sync, its result is trusted for
+30 s (`PROBE_TTL_MS`) and asked for again after that, and every API call reports its own outcome,
+so a dead server is noticed by the first request that hits it. The UI reads the state through
+`onlineAvailability(state)`: hidden, dimmed with a reason, or enabled.

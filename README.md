@@ -46,7 +46,11 @@ Crossing the world takes a real path across it, and that path is the game.
   and badges for the flights you take
 - **Three map styles**: dark vector, satellite with 3D terrain, and a fully offline map
 - **Engine sound** synthesised in real time from the flight's own thrust, with no recordings
-- **No account, no ads, no analytics, no tracking.** Everything stays on your phone
+- **Optional shared challenges**: race a friend to a destination, or fill a distance, set or
+  streak goal together, through a six-character room code. Off by default; the app works fully
+  without it
+- **No account, no ads, no analytics, no tracking.** Everything stays on your phone unless you
+  turn on shared challenges, and then only your pilot name, code and challenge progress leave it
   ([privacy policy](PRIVACY.md))
 
 ## Built with
@@ -82,9 +86,10 @@ API keys are optional and go in the untracked `local.properties`:
 CARTO_API_KEY=…    # dark map tiles (otherwise watermarked)
 ESRI_API_KEY=…     # licensed satellite imagery (otherwise the keyless service)
 PEXELS_API_KEY=…   # destination photo on arrival (otherwise skipped)
+ROOM_SERVER_URL=…  # room server for shared challenges (blank: no sharing UI; debug builds use an in-memory fake)
 ```
 
-The offline map needs none of them.
+The offline map needs none of them, and neither does the rest of the app.
 
 ### Tests
 

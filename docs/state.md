@@ -31,6 +31,10 @@ Short-lived, fast-changing, per-device values, and small preferences. Nothing de
 | `route_line_mode` | `InFlightViewModel` | `InFlightViewModel` | 0 full (default), 1 window, 2 hidden. |
 | `engine_sound_enabled` | `InFlightViewModel` | `InFlightViewModel` | Off by default. |
 | `logbook_sort_order` | `AccountViewModel.setSortOrder()` | `AccountViewModel` | A `FlightSortOrder` name; an unknown name falls back to newest first. |
+| `online_features_enabled` | `ServerReachability.setOnlineFeaturesEnabled()` (from the Settings switch) | `ServerReachability`, at construction | The "Shared challenges" opt-in. Off by default. Read through the controller, not the preference, so the switch and the server state cannot disagree. |
+| `room_secret` | `getOrCreateRoomSecret()`, on the first switch-on, once | nothing yet; the HTTP client of the next stage sends it as the bearer token | 32 characters; the password to the pilot's public code. Never regenerated, never shown ([shared-challenges.md](shared-challenges.md#identity)). |
+| `pending_room_leaves` | `LocalChallengeRepository` (a share whose re-check failed, a join the cap refused); `SharedChallengeSyncer` (removed once the server confirms or a live row has the code) | `SharedChallengeSyncer` | Room codes still to be left. A comma-separated string, because codes never contain a comma. |
+| `last_room_sync_at` | `SharedChallengeSyncer`, after each completed sync | `SharedChallengeSyncer` | The 60 s debounce of the foreground and screen-open triggers. |
 
 The two paused-flight slots are serialised `PausedFlight` records; see
 [paused-flights.md](paused-flights.md) for the format and the rules around writing them.
@@ -48,6 +52,11 @@ Durable, user-meaningful data.
 | `challenges.paused_flight` | Check-In; `InFlightViewModel` through `SessionPausedFlightStore` | Hub, Challenges, In-Flight | Per-challenge slot, written by a scoped statement. |
 | `challenges.streak_days`, `last_flown_day` | `creditStreak` only | through `withStreakEvaluatedAt` | The run as of the last day flown, not as of today. |
 | `challenges.celebrated` | `markCelebrated`, from the completion overlay | slot and completed-log queries | Whether a completion has been shown yet; written by a scoped statement. |
+| `challenges.room_code` | `shareChallenge` (`updateRoomLink`); `joinRoom` (on insert) | everything that asks `isShared()` | Non-null means shared. Unique per pilot; stays on terminal rows so a room is joined once. |
+| `challenges.room_state` | `applyRoomState`, `markRoomGone` (`updateRoomState`, `updateSharedFields*`); the first cache on share and join | `crew()`, team progress, the presentation choice | **A cache**: the last room state seen, plus the pilot's own code. May be dropped and rebuilt by the next sync; a corrupt one is dropped on read. |
+| `challenges.sync_generation` | the credit paths on a shared row (`bumpSyncGeneration`, or `nextGeneration()` in the credit's own statement) | `isSyncPending()` | Moves with every change to the pilot's own data. |
+| `challenges.synced_generation` | `confirmSynced`, from the syncer after an upload | `isSyncPending()` | The generation the server confirmed; the write is a no-op if the row moved on. |
+| `challenges.shared_outcome` | the credit paths (own completion); `applyRoomState` (`updateSharedFields*`) | the presentation, the log stamp, `resolveLandingOutcome` | **A fact**: how the room ended and whether that was this pilot. Kept after the room itself is gone. |
 | `achievement_unlocks` | `LocalAchievementsRepository` (`INSERT OR IGNORE`) | badge ordering | The only persisted achievement state, and only a timestamp. |
 
 ## Derived, never persisted
@@ -98,6 +107,24 @@ Sequences within one path whose order is part of their correctness:
    cooldown stamp ([modes.md](modes.md#the-two-cooldowns)).
 5. **Starting a flight** (Check-In): write the fresh paused-flight record → navigate
    ([paused-flights.md](paused-flights.md#starting-a-flight)).
+6. **Sharing a challenge** (`shareChallenge`): create the room on the server, outside the lock →
+   under the lock, re-read the row and re-check that it is still shareable → link it
+   (`updateRoomLink`, code and first cache in one statement). A row that changed in between is
+   not linked and the room's code goes to `pending_room_leaves`, so a room is never linked to a
+   row with progress and never leaked ([shared-challenges.md](shared-challenges.md#sharing-info-modal-share-challenge), S8).
+7. **Joining a room** (`joinRoom`): put the first snapshot, which is the join on the server,
+   outside the lock → under the lock, re-check the cap and insert the row. The server has the
+   pilot before the row exists, so a cap that filled in between leaves the room again, and a
+   process death in between is repaired by the next join with the same code, which is an upsert
+   (J5, J14).
+8. **Abandoning a shared row** (`abandonChallenge`): the row is deleted, as for a solo row, and
+   nothing else happens; the server is not told and the pilot's snapshot stays in the room until
+   its retention ([shared-challenges.md](shared-challenges.md#abandoning), A2).
+9. **Syncing a row** (`SharedChallengeSyncer.syncNow`): reply → apply (`applyRoomState`, one
+   scoped statement under the lock on a freshly read row) → confirm (`confirmSynced`, guarded by
+   the generation). A process death between any two leaves the row pending and the upload is
+   repeated; applying a room state to a row deleted meanwhile does nothing and never re-inserts
+   ([shared-challenges.md](shared-challenges.md#sync-moments), Y3, P15).
 
 ## Concurrent writers
 
@@ -121,7 +148,7 @@ Three mechanisms, at three layers, rule that out:
 
 | Layer | Mechanism | What it makes impossible |
 |---|---|---|
-| Schema | `ChallengeDao.updatePausedFlight`, `updateRouteProgress`, `markCelebrated` | one concern's writer reverting another concern's columns |
+| Schema | `ChallengeDao.updatePausedFlight`, `updateRouteProgress`, `markCelebrated`, and the sync path's `updateSharedFields`, `updateSharedFieldsAndClearPausedFlight`, `updateRoomState`, `bumpSyncGeneration`, `confirmSynced`, `updateRoomLink` | one concern's writer reverting another concern's columns |
 | Repository | `LocalChallengeRepository.writeMutex` | two read-modify-writes of the *same* concern interleaving; the cap check passing twice |
 | Session | `SessionPausedFlightStore` | a landed flight's slot being written again after the landing clears it |
 
@@ -144,6 +171,27 @@ and it does not depend on the flag being observed before the racing read.
 straddling the landing, and a Route advance carrying a stale slot), the resurrect case, and an
 uncontended control, against a fake DAO with Room's real write granularity.
 
+Shared challenges add a fourth writer to the row, the sync, and two rules keep it from reverting
+a landing. **The sync path uses only scoped statements**: `applyRoomState` writes the cache alone
+(`updateRoomState`) when only foreign progress arrived, the shared fields (`updateSharedFields`)
+when the merge ended the challenge, and the shared fields plus `paused_flight = NULL` in one
+statement (`updateSharedFieldsAndClearPausedFlight`) when a foreign win ends a race with a paused
+leg, so no camera save can slip a flight back in between the status flip and the clear. It runs
+under the same mutex on a row read under it, and **no network call ever runs under the mutex**:
+the sharing operations read, call the server, and only then take the lock to re-read and write, so
+a round trip never stalls a landing credit behind the server's latency.
+
+**A generation pair, not a flag, records what the server has.** A landing can be credited while an
+upload of the previous snapshot is in flight; a "needs upload" boolean would be cleared by that
+upload's reply and lose the landing until the next one. Instead the credit paths move
+`sync_generation` (`bumpSyncGeneration` is `sync_generation + 1` in SQL, so two racing credits both
+count whatever either read, and the whole-row credits write `nextGeneration()` in their own
+statement), and the syncer's `confirmSynced(id, generation)` writes `synced_generation` only
+`WHERE sync_generation = :generation`. A row that moved on during the upload stays pending, and
+the next sync sends the newer state ([shared-challenges.md](shared-challenges.md#data-model), L11).
+`LocalChallengeRepositorySharedTest` and `SharedChallengeSyncerTest` cover the race and the
+abandon-mid-sync case against the same fake DAO.
+
 ## Facts and the clock
 
 A third category, separate from both "owned" and "derived": state that is a correct record of the
@@ -161,11 +209,21 @@ on the derived side ([achievements.md](achievements.md#tours)) and
 clock. It is also why the derived snapshot can be a pure function of Room's data: nothing in it
 depends on when it was computed.
 
+Shared streaks follow it twice. Whether a crew member's streak is alive is derived when the room
+state is merged, from their snapshot's `lastFlownDay` and `updatedAt` against today with two days
+of slack for time zones, and the pilot's own from `isOwnStreakAlive(today, zone)`; nothing stores
+"alive" as a column, and the same function feeds both the uploaded snapshot and the merge's own
+verdict ([shared-challenges.md](shared-challenges.md#the-merge)). And the sync debounce is a
+stored fact plus a comparison: `last_room_sync_at` records when the last sync completed, and the
+syncer decides on each request whether 60 s have passed, rather than keeping a timer.
+
 ## Migrations
 
-`AppDatabase` is at version 10 with `exportSchema = true`. Versions 6 → 7 (streak columns), 7 → 8
-(challenge icon), 8 → 9 (predefined-route columns) and 9 → 10 (`celebrated`, with existing
-completions backfilled as already celebrated) are explicit `Migration` objects. Versions 1 to 5
+`AppDatabase` is at version 11 with `exportSchema = true`. Versions 6 → 7 (streak columns), 7 → 8
+(challenge icon), 8 → 9 (predefined-route columns), 9 → 10 (`celebrated`, with existing
+completions backfilled as already celebrated) and 10 → 11 (the five shared-challenge columns and
+the unique `(user_id, room_code)` index; existing rows stay solo) are explicit `Migration`
+objects. Versions 1 to 5
 have no exported schema and are listed in `fallbackToDestructiveMigrationFrom`, the only case in
 which the database is rebuilt.
 

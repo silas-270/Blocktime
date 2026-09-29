@@ -11,6 +11,7 @@ engine itself, CesiumRS, has its own documentation in its repository.
 | [navigation.md](navigation.md) | The navigation graph, route arguments, the channels that cross screens, and ViewModel lifetime |
 | [modes.md](modes.md) | Story, Free and Challenge modes, the isolation matrix, the home base and its two cooldowns |
 | [challenges.md](challenges.md) | The four challenge types, predefined itineraries, crediting rules, completion presentation |
+| [shared-challenges.md](shared-challenges.md) | Opt-in rooms: the offline-first data model, the merge, every situation as a test list, the presentations and the server's contract |
 | [achievements.md](achievements.md) | Achievements as a query over history, ladders and badge tiers, the shared derivation, tours |
 | [state.md](state.md) | Every persisted value and its owner, caches, write ordering, and concurrent writers |
 | [paused-flights.md](paused-flights.md) | How a flight survives backgrounding, leaving, process death and landing |

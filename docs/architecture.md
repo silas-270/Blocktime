@@ -25,9 +25,11 @@ itineraries in `PredefinedRouteCatalog` obey the same rule: every leg is a route
 `flights.db`, and `PredefinedRouteCatalogTest` checks each one leg by leg against the database
 (see [challenges.md](challenges.md)).
 
-The app is single-player, with no account, no sync and no server. The network is used only for
+The app has no account and, unless the pilot opts in, no server. The network is used for
 live-globe map tiles and one optional destination photo per flight, and the app is fully usable
-without it ([network.md](network.md)).
+without it ([network.md](network.md)). The one opt-in online feature, shared challenges, treats
+the server as a relay and keeps working as a local challenge when it is gone
+([shared-challenges.md](shared-challenges.md)).
 
 ## Stack
 
@@ -61,7 +63,7 @@ CesiumGameActivity            composition root · NavHost · engine lifecycle
    ├── data/repository/       an interface plus a Local* implementation per concern
    ├── data/model/            entities, enums, catalogs, pure progress math
    ├── data/local/            Room DAOs and migrations, the flights.db data source
-   ├── data/network/          connectivity and offline mode
+   ├── data/network/          connectivity and offline mode, server reachability, the room API
    │
    ├── engine/live/           JNI bridge to the running engine
    ├── engine/headless/       JNA bridge to the offscreen renderer, render cache
@@ -83,6 +85,14 @@ testing is moved out of it. That is where `processLandingForChallenges`,
 landing's concurrency guarantee lives in `SessionPausedFlightStore` rather than in a flag on
 the ViewModel ([state.md](state.md#concurrent-writers)).
 
+`ChallengesViewModel` is the counter-example: it touches no JNI, so `ChallengesViewModelTest`
+runs the real ViewModel on a test main dispatcher (`Dispatchers.setMain` from coroutines-test,
+with `android.util.Log` neutralised by `isReturnDefaultValues`) and pins that `celebrate`
+persists before it dequeues and that a completion a sync brings in while the screen is open is
+presented on that visit. The queue's one step, `nextQueue(queue, seen, rows)`, is still a pure
+function in a file of its own, tested without the ViewModel around it, for the same reason the
+other seams exist ([shared-challenges.md](shared-challenges.md#presentation)).
+
 ## The composition root
 
 There is no dependency-injection framework. `CesiumGameActivity.onCreate()` constructs every
@@ -90,11 +100,18 @@ repository once and hands them to screens through the ViewModel factories. The g
 enough to read in one screen, and the order in which it is built carries meaning:
 
 1. The `flights.db` data source and airport repository, the `PendingFlightLoader`, the
-   preferences repository, and the process-wide `OfflineModeController`.
-2. The Room database and the user, flight-log, challenge and achievement repositories.
+   preferences repository, the process-wide `OfflineModeController`, and next to it the
+   process-wide `ServerReachability`, the second signal, together with the `RoomApi` that
+   `RoomApiProvider.roomApi` chose for this build ([network.md](network.md#the-second-signal)).
+2. The Room database and the user, flight-log, challenge and achievement repositories. The
+   challenge repository takes the room API, the reachability signal and the preferences, which
+   is what makes share and join repository operations rather than screen logic.
 3. `PilotProgressRepository`, on an `appScope` that outlives every ViewModel, so the shared
    derivation of the pilot's progress stays warm across navigation
-   ([achievements.md](achievements.md#the-shared-derivation)).
+   ([achievements.md](achievements.md#the-shared-derivation)), and `SharedChallengeSyncer` on the
+   same scope, so a landing's sync request never waits on a ViewModel's scope. `onStart` asks the
+   syncer for a `FOREGROUND` sync, which covers cold start and is debounced
+   ([shared-challenges.md](shared-challenges.md#sync-moments)).
 4. `ensureDatabaseCopied()`, which refreshes the bundled database if the app was installed or
    updated since the last copy ([flight-data.md](flight-data.md#copying-and-opening-it)).
 5. `CesiumEngineManager`, attached to the Activity lifecycle before any Compose content exists.
@@ -127,6 +144,7 @@ been destroyed ([navigation.md](navigation.md#what-travels-outside-the-route)).
 | Airport local time | `util/FlightClock.kt`, `util/AirportTimeZones.kt`, see [time-zones.md](time-zones.md) |
 | Native engine | `engine/live/`, see [engine.md](engine.md); `engine/headless/`, see [maps.md](maps.md) |
 | Offline mode | `data/network/`, `domain/OfflineMapPolicy.kt`, see [network.md](network.md) |
+| Shared challenges | `data/network/room/`, `data/repository/SharedChallengeSyncer.kt`, `domain/SharedChallengeMerge.kt`, see [shared-challenges.md](shared-challenges.md) |
 | Engine sound | `domain/EnginePowerModel.kt`, `audio/`, see [engine-sound.md](engine-sound.md) |
 | Design scale | `ui/theme/DesignScale.kt`, see [ui.md](ui.md) |
 
@@ -139,7 +157,7 @@ They are unrelated and have opposite lifecycles.
 writes it, which is what makes the several process-lifetime caches on top of it safe. Its
 provenance, contents and quirks are in [flight-data.md](flight-data.md).
 
-**`user_data.db`** is the pilot's own data: a Room database at schema version 10 with four
+**`user_data.db`** is the pilot's own data: a Room database at schema version 11 with four
 entities, `user_profile`, `flight_log`, `challenges` and `achievement_unlocks`. Migrations from
 version 6 onward are explicit `Migration` objects in `AppDatabase.kt`, each validated by the
 instrumented `MigrationTest` against the schema JSON exported to `app/schemas/`. Versions 1 to 5
@@ -171,10 +189,17 @@ stand-in that does nothing. The In-Flight `FlightDebugMenu` is the main example:
 ViewModel hooks it drives (`debugSeek`, `setDebugTimeScale`, `skipFlight`) are in main code, but
 nothing in a release build calls them, so release flights always run at real time.
 
-The debug manifest also registers two broadcast receivers: `PerfScenarioReceiver`, which tags a
-Perfetto capture for `tools/run_perf_scenario.sh`, and `DebugSeedReceiver`, which inserts a set
-of demonstration flights. `CesiumGameActivity` registers a debug-only receiver for navigation and
-screen capture, used by `tools/capture_all_screens.sh`.
+`RoomApiProvider` is the other pair. The release one maps a `ROOM_SERVER_URL` to the room
+API client and a blank one to `NoRoomApi`, which hides every sharing surface; the debug one does
+the same with a URL, and without one uses the in-memory `FakeRoomApi`, exposed as
+`RoomApiProvider.fake`, so the whole sharing flow can be walked on a phone before a backend
+exists ([shared-challenges.md](shared-challenges.md#debugging-without-a-server)).
+
+The debug manifest also registers three broadcast receivers: `PerfScenarioReceiver`, which tags a
+Perfetto capture for `tools/run_perf_scenario.sh`, `DebugSeedReceiver`, which inserts a set of
+demonstration flights, and `DebugRoomReceiver`, which plays a bot pilot in every room the fake
+holds. `CesiumGameActivity` registers a debug-only receiver for navigation and screen capture,
+used by `tools/capture_all_screens.sh`.
 
 ## Build
 
@@ -189,8 +214,9 @@ ABIs and copies each `libcesium_rs.so` into `src/main/jniLibs/<abi>/`. The envir
 and the profiling variant are described in [engine.md](engine.md#building-the-native-library).
 
 Machine-local configuration lives in the untracked `local.properties`: SDK paths, the optional
-`PEXELS_API_KEY` (compiled into `BuildConfig`), `CARTO_API_KEY` and `ESRI_API_KEY` (passed to the
-Rust build as environment variables), and the four `RELEASE_*` signing properties. Without all
+`PEXELS_API_KEY` and `ROOM_SERVER_URL` (both compiled into `BuildConfig`; a blank server URL
+means no sharing UI in the build), `CARTO_API_KEY` and `ESRI_API_KEY` (passed to the Rust build as
+environment variables), and the four `RELEASE_*` signing properties. Without all
 four signing properties the release build is produced unsigned.
 
 ## Testing
@@ -198,7 +224,10 @@ four signing properties the release build is produced unsigned.
 JVM unit tests cover the pure layers and the seams extracted for them: progress math, tour
 segmentation, cooldowns, achievement evaluation and stacking, route-network and search logic,
 airport clocks, the world-map projection, offline-mode resolution, the render cache and route
-selection, the landing outcome diff, challenge crediting, and the two audio classes.
+selection, the landing outcome diff, challenge crediting, the two audio classes, and the shared
+challenges: the server-state derivation, the room merge, team progress, the repository's share and
+join paths and the syncer against `FakeRoomApi`, whose own test suite is the backend's contract
+test ([shared-challenges.md](shared-challenges.md#situations)).
 
 A few of them test a property rather than a function, and are worth knowing about:
 

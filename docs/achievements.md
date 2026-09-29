@@ -17,7 +17,8 @@ Three categories are shaped like progress bars and are modelled by `AchievementC
 The fourth, **challenges completed**, is not in that enum and has no `AchievementStatus` at all.
 It is the flat log of completed challenges ([challenges.md](challenges.md#abandon-not-reset)): a
 list without a denominator, since custom challenges and repeat completions mean there is no fixed
-total to be a fraction of.
+total to be a fraction of. A shared streak that broke never reaches it: its `FAILED` row is
+deleted after its presentation, so the log holds successes only.
 
 ### Geographic sets
 

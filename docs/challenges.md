@@ -124,6 +124,14 @@ Streak crediting turns that timestamp into a local date in the device's zone. A 
 a day already counted changes nothing; a flight on the day after the last one extends the run;
 anything else restarts it at one.
 
+Two of these rules bend for a shared row ([shared-challenges.md](shared-challenges.md#landing)).
+**A shared pool can be filled by the pilot's own landing**: `creditDistance` and
+`creditSetCompletion` judge the team's sum or union, the local row plus the cached snapshots of
+the others, so a landing that fills the pot completes the row at once rather than at the next
+sync. **A shared streak never completes from a landing**: `creditStreak` writes the day and leaves
+the status alone, because completion, and failure, depend on the crew's minimum, which only the
+merge knows. Every credit to a shared row also bumps its `sync_generation`.
+
 ## Route progress formula
 
 A free-form Route challenge measures progress as the fraction of the straight-line distance
@@ -190,12 +198,21 @@ duplicates out of its slot and grows to the centre while the slot row compacts t
 freed slot, confetti bursts once it settles, and on a tap (or system back) it smashes down into a
 new entry at the top of the completed log. At that moment `markCelebrated` flips the flag.
 
-`ChallengesViewModel.celebrationQueue` is computed **once**, from the database, when the
-ViewModel is created, not kept live. A challenge already mid-animation is therefore never
-re-queued by a later emission, and the queue is rebuilt correctly however the app was last left:
-any `COMPLETED` row with `celebrated = false` is still in its slot the next time Challenges opens,
-whichever screen the pilot was on when the process died. Migration 9 → 10 marked every completion
-that already existed as celebrated, so the column's introduction did not replay old completions.
+`ChallengesViewModel.celebrationQueue` is reactive: it holds **ids**, fed from the slot flow
+through the pure `nextQueue(queue, seen, rows)`, which appends every terminal, unpresented row it
+has not seen before and remembers it in a seen set, so a challenge already mid-animation is never
+re-queued by a later emission and a completion that a sync brings in while the screen is open is
+presented on this visit. The presented row is resolved by id from the latest emission, so a sync
+that corrects a row's outcome after it was queued is presented as corrected. The database stays
+the source: the queue is rebuilt from `status IN (COMPLETED, FAILED) AND celebrated = 0` however
+the app was last left, whichever screen the pilot was on when the process died. Migration 9 → 10
+marked every completion that already existed as celebrated, so the column's introduction did not
+replay old completions.
+
+A `FAILED` row plays a different overlay, the shatter (`ChallengeFailureOverlay`): the card lifts
+to centre stage the same way, says "STREAK BROKEN" and who missed the day, and on a tap cracks and
+falls apart into shards, after which `dismissFailed` deletes the row instead of marking it
+celebrated ([shared-challenges.md](shared-challenges.md#presentation)).
 
 ## Isolation
 
@@ -208,10 +225,22 @@ the sharpest difference from a geographic achievement, which reads persistent hi
 ## Lifecycle
 
 ```
-(start) ──▶ ACTIVE ──▶ COMPLETED      final qualifying landing
+(start) ──▶ ACTIVE ──▶ COMPLETED      final qualifying landing, or the crew's (shared)
               │
+              ├──────▶ FAILED         a shared streak broke (shared only); the row is
+              │                       deleted once its shatter has played
               └──────▶ (row deleted)   abandon
 ```
+
+### Shared
+
+A row with a `room_code` is shared: the same goal runs on every crew member's phone, and it ends
+for everyone at the same moment. Sharing changes what "complete" means for the three pooled types
+(the team's union, sum or minimum instead of the pilot's own), adds `FAILED` for a group streak
+that broke, and adds a sync step after the landing pipeline, but it changes nothing about the
+lifecycle above: a shared row is credited locally exactly like a solo one and keeps working when
+the server is gone. The data model, the merge, every situation and the server's contract are in
+[shared-challenges.md](shared-challenges.md).
 
 ### Abandon, not reset
 
@@ -222,7 +251,9 @@ slot frees immediately.
 Completed challenges are never deleted. They stay as a flat, newest-first log, one row per
 completion, so completing the same curated challenge twice shows twice, like two flights on the
 same route in the logbook. That log is why "challenges completed" has no achievement
-representation: it is a list, not a progress bar.
+representation: it is a list, not a progress bar. A `FAILED` row, which only a shared streak can
+produce, is the one terminal row that is deleted: once its shatter has played it is gone, so the
+log stays a log of successes ([shared-challenges.md](shared-challenges.md#presentation)).
 
 ### Active-challenge cap
 
