@@ -491,18 +491,4 @@ class SharedChallengeSyncerTest {
         advanceTimeBy(1_000L)
         assertEquals(3, roomApi.calls.size)
     }
-
-    @Test
-    fun `hasAnythingToSync needs a shared row or a pending leave`() = runTest(UnconfinedTestDispatcher()) {
-        val syncer = syncer()
-        assertFalse(syncer.hasAnythingToSync())
-
-        prefs.addPendingRoomLeave("GONE01")
-        assertTrue(syncer.hasAnythingToSync())
-        prefs.removePendingRoomLeave("GONE01")
-        assertFalse(syncer.hasAnythingToSync())
-
-        sharedRow()
-        assertTrue(syncer.hasAnythingToSync())
-    }
 }

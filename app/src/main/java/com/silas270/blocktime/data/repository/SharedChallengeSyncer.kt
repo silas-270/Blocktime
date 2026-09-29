@@ -47,8 +47,8 @@ enum class SyncReason {
      *  debounced. */
     RECONNECT,
 
-    /** The interval: every [SharedChallengeSyncer.FOREGROUND_INTERVAL_MS] while the app is in
-     *  the foreground, and every 15 minutes from `SharedSyncWorker` when it is not. Debounced. */
+    /** Every [SharedChallengeSyncer.FOREGROUND_INTERVAL_MS] while the app is in the foreground.
+     *  Debounced. */
     PERIODIC;
 
     /** The triggers that fire without anything having changed locally. */
@@ -71,13 +71,12 @@ sealed interface SyncSummary {
 
 /**
  * The one place the app talks to the room server about the pilot's rows
- * (docs/shared-challenges.md "Sync moments", plan B6). Process-wide, built once by
- * `SharedSyncGraph` on a scope of its own, so a landing can ask for a sync without the In-Flight
- * ViewModel's landing scope waiting for the network, and `SharedSyncWorker` syncs through the
- * same instance when the app is in the background.
+ * (docs/shared-challenges.md "Sync moments", plan B6). Activity-scoped, built once in
+ * `CesiumGameActivity.onCreate` on the Activity's own scope, so a landing can ask for a sync
+ * without the In-Flight ViewModel's landing scope waiting for the network.
  *
- * The interval is [keepFresh] in the foreground and the worker in the background. Nothing here
- * is on the landing pipeline's path: a landing is credited
+ * The only repetition is [keepFresh], while the app is in the foreground. Nothing here is on the
+ * landing pipeline's path: a landing is credited
  * locally first, and the sync is asked for afterwards, fire-and-forget. Every write to a row goes
  * through the repository, which takes its write mutex, re-reads the row and writes with a scoped
  * statement, so a credit that lands mid-sync is never reverted and a row deleted mid-sync is
@@ -283,7 +282,7 @@ class SharedChallengeSyncer(
      * The foreground half of the interval sync: a [SyncReason.PERIODIC] request every
      * [FOREGROUND_INTERVAL_MS], and a [SyncReason.RECONNECT] one each time [isConnected] turns
      * true after having been false. Runs until cancelled; the Activity runs it while started, so
-     * a backgrounded app leaves the interval to `SharedSyncWorker`.
+     * nothing syncs while the app is not in the foreground.
      */
     suspend fun keepFresh(isConnected: Flow<Boolean>, intervalMs: Long = FOREGROUND_INTERVAL_MS) {
         coroutineScope {
@@ -302,19 +301,13 @@ class SharedChallengeSyncer(
         }
     }
 
-    /** Whether a background sync has anything to talk about: a shared row, or a leave that has
-     *  not been sent. Without either, the worker does not even probe the server. */
-    suspend fun hasAnythingToSync(): Boolean =
-        preferencesRepository.getPendingRoomLeaves().isNotEmpty() ||
-            challengeRepository.listSyncableChallenges().isNotEmpty()
-
     companion object {
         private const val TAG = "SharedChallengeSyncer"
 
         /** How long a debounced trigger waits after the last completed sync. */
         const val DEBOUNCE_MS = 60_000L
 
-        /** The foreground interval. The background one is WorkManager's minimum, 15 minutes. */
+        /** How often [keepFresh] asks for a sync while the app is in the foreground. */
         const val FOREGROUND_INTERVAL_MS = 5 * 60_000L
     }
 }

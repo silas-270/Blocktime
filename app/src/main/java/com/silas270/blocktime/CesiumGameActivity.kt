@@ -39,11 +39,13 @@ import androidx.navigation.NavOptionsBuilder
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.silas270.blocktime.data.local.AppDatabase
+import com.silas270.blocktime.data.local.airport.AirportRouteSqliteDataSource
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.FlightMode
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.network.OfflineModeController
 import com.silas270.blocktime.data.network.ServerReachability
+import com.silas270.blocktime.data.network.room.RoomApiProvider
 import com.silas270.blocktime.data.repository.AchievementsRepository
 import com.silas270.blocktime.data.repository.AirportRepository
 import com.silas270.blocktime.data.repository.ChallengeOutcome
@@ -54,13 +56,15 @@ import com.silas270.blocktime.data.repository.LocalAchievementsRepository
 import com.silas270.blocktime.data.repository.LandingResult
 import com.silas270.blocktime.data.repository.LandingResultChannel
 import com.silas270.blocktime.data.repository.PexelsDestinationPhotoRepository
+import com.silas270.blocktime.data.repository.LocalAirportRepository
+import com.silas270.blocktime.data.repository.LocalChallengeRepository
 import com.silas270.blocktime.data.repository.FlightLogRepository
 import com.silas270.blocktime.data.repository.LocalFlightLogRepository
+import com.silas270.blocktime.data.repository.LocalUserRepository
 import com.silas270.blocktime.data.repository.PilotProgressRepository
 import com.silas270.blocktime.data.repository.PreferencesRepository
 import com.silas270.blocktime.data.repository.SharedChallengeSyncer
 import com.silas270.blocktime.data.repository.SyncReason
-import com.silas270.blocktime.data.sync.SharedSyncGraph
 import com.silas270.blocktime.data.repository.UserRepository
 import com.silas270.blocktime.domain.ArrivalDestination
 import com.silas270.blocktime.domain.flightNumberFor
@@ -204,8 +208,8 @@ class CesiumGameActivity : GameActivity() {
      *  (docs/shared-challenges.md "Two signals"). */
     private lateinit var serverReachability: ServerReachability
 
-    /** Process-wide, from [SharedSyncGraph], on a scope of its own, so a landing's sync request
-     *  never waits on a ViewModel's scope (docs/shared-challenges.md "Sync moments"). */
+    /** Built on [appScope] after the repositories, so a landing's sync request never waits on a
+     *  ViewModel's scope (docs/shared-challenges.md "Sync moments"). */
     private lateinit var sharedChallengeSyncer: SharedChallengeSyncer
 
     /** Outlives every ViewModel on purpose - it is what keeps the shared derivation warm across
@@ -236,22 +240,31 @@ class CesiumGameActivity : GameActivity() {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // The sharing side is process-wide (SharedSyncGraph): the background sync worker uses
-        // the same repository and syncer, so their locks serialise it against a landing. The
-        // graph also attaches the debug fake's file before the first use of the room api.
-        val sharedSync = SharedSyncGraph.get(applicationContext)
-        airportRepository = sharedSync.airportRepository
+        // Initialize database helper and preferences repository
+        airportRepository = LocalAirportRepository(AirportRouteSqliteDataSource(applicationContext))
         pendingFlightLoader = PendingFlightLoader(airportRepository)
-        preferencesRepository = sharedSync.preferencesRepository
+        preferencesRepository = PreferencesRepository(applicationContext)
         offlineModeController = OfflineModeController.getInstance(applicationContext)
-        serverReachability = sharedSync.serverReachability
+        // Before the reachability signal and the first use of the room api, because attaching
+        // replaces the rooms the debug fake holds with those in its file (docs/shared-challenges.md
+        // "Debugging without a server"). A no-op in release and with a server URL.
+        RoomApiProvider.attach(filesDir)
+        serverReachability = ServerReachability.getInstance(applicationContext)
+        val roomApi = RoomApiProvider.roomApi
         com.silas270.blocktime.ui.theme.ThemeModeHolder.current = preferencesRepository.getThemeMode()
 
         // Initialize Room database and repositories
         val appDatabase = AppDatabase.getInstance(applicationContext)
-        userRepository = sharedSync.userRepository
+        userRepository = LocalUserRepository(appDatabase.userProfileDao())
         flightLogRepository = LocalFlightLogRepository(appDatabase.flightLogDao(), appDatabase.userProfileDao())
-        challengeRepository = sharedSync.challengeRepository
+        challengeRepository = LocalChallengeRepository(
+            appDatabase.challengeDao(),
+            appDatabase.userProfileDao(),
+            airportRepository,
+            roomApi = roomApi,
+            serverReachability = serverReachability,
+            preferencesRepository = preferencesRepository
+        )
         achievementsRepository = LocalAchievementsRepository(
             appDatabase.achievementUnlockDao(),
             appDatabase.userProfileDao(),
@@ -267,10 +280,18 @@ class CesiumGameActivity : GameActivity() {
             appScope
         )
 
-        sharedChallengeSyncer = sharedSync.syncer
+        sharedChallengeSyncer = SharedChallengeSyncer(
+            challengeRepository,
+            userRepository,
+            preferencesRepository,
+            roomApi,
+            serverReachability,
+            appScope
+        )
 
         // While the app is in the foreground: sync every five minutes and whenever the
-        // connection comes back. Stopped with the Activity; SharedSyncWorker covers the rest.
+        // connection comes back (docs/shared-challenges.md "Sync moments"). Stopped with the
+        // Activity; nothing syncs while the app is not in the foreground.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 sharedChallengeSyncer.keepFresh(offlineModeController.isConnected)

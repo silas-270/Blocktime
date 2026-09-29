@@ -51,7 +51,6 @@ There are no push notifications. `SharedChallengeSyncer` asks the server at exac
 | A successful share or join, and abandon (`ChallengesViewModel`) | `USER_ACTION` | none |
 | The connection comes back while the app is in the foreground (`keepFresh`) | `RECONNECT` | none |
 | Every 5 minutes while the app is in the foreground (`keepFresh`) | `PERIODIC` | 60 s |
-| Every 15 minutes in the background, with a connection (`SharedSyncWorker`) | `PERIODIC` | 60 s |
 
 **Nothing is queued as requests; what still has to reach the server is state on the phone**, so it
 survives the app being closed, the process being killed and a reboot. A row's own progress is
@@ -62,21 +61,11 @@ database down) changes nothing locally and leaves it all for the next trigger. S
 join are the exception: they need the server's answer on the spot, so they are never queued and
 their buttons are disabled while it cannot be reached.
 
-The interval has two halves. In the foreground, the Activity runs `SharedChallengeSyncer.keepFresh`
-while it is started: a `PERIODIC` request every 5 minutes, and a `RECONNECT` request each time the
-raw connectivity signal turns true after having been false (the value on arrival is not a change;
-`onStart` has already synced). In the background, `SharedSyncWorker` is a WorkManager periodic job
-every 15 minutes, WorkManager's minimum, constrained to a connected network. It is scheduled
-while the "Shared challenges" switch is on and the build has a server and cancelled otherwise
-(`SharedSyncGraph` follows `ServerReachability.optIn`), and a run with no shared row and no
-pending leave does not even probe the server. Doze and battery savers may stretch the background
-period; that is the platform's call, and the foreground interval takes over as soon as the app is
-open.
-
-**The Activity and the worker share one repository and one syncer** (`SharedSyncGraph`, process
-wide). The repository's write mutex and the syncer's run mutex only serialise what goes through
-the same instance, so a worker with its own pair could merge a room state into a row while the
-Activity credits a landing to it.
+While the Activity is started, it runs `SharedChallengeSyncer.keepFresh`: a `PERIODIC` request
+every 5 minutes, and a `RECONNECT` request each time the raw connectivity signal turns true after
+having been false (the value on arrival is not a change; `onStart` has already synced). **Nothing
+syncs while the app is not in the foreground**: there is no background job, so a crew sees a
+pilot's landings once that pilot's app is open again, and the pilot sees theirs on return.
 
 Share, look-up and join call the server directly from the repository and report the outcome to
 the reachability signal themselves. A successful share or join then requests `USER_ACTION`, so

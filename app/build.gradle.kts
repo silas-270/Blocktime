@@ -243,7 +243,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     implementation(libs.gson)
     implementation(libs.okhttp)
-    implementation(libs.work.runtime)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     implementation(libs.room.paging)
