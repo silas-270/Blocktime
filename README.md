@@ -56,7 +56,9 @@ Crossing the world takes a real path across it, and that path is the game.
 ## Built with
 
 Kotlin · Jetpack Compose · Material 3 · Room · a native Rust/wgpu engine,
-[**CesiumRS**](https://github.com/silas-270/CesiumRS), linked through JNI and JNA.
+[**CesiumRS**](https://github.com/silas-270/CesiumRS), linked through JNI and JNA. The optional
+room server for shared challenges, in [`backend/`](backend/README.md), is Rust with axum and
+Postgres.
 
 ## Building from source
 
@@ -86,7 +88,7 @@ API keys are optional and go in the untracked `local.properties`:
 CARTO_API_KEY=…    # dark map tiles (otherwise watermarked)
 ESRI_API_KEY=…     # licensed satellite imagery (otherwise the keyless service)
 PEXELS_API_KEY=…   # destination photo on arrival (otherwise skipped)
-ROOM_SERVER_URL=…  # room server for shared challenges (blank: no sharing UI; debug builds use an in-memory fake)
+ROOM_SERVER_URL=…  # room server for shared challenges, see backend/ (blank: no sharing UI; debug builds use an in-memory fake)
 ```
 
 The offline map needs none of them, and neither does the rest of the app.
@@ -96,6 +98,7 @@ The offline map needs none of them, and neither does the rest of the app.
 ```bash
 ./gradlew test                    # JVM unit tests
 ./gradlew connectedAndroidTest    # on a device: database migrations, route catalog
+(cd backend && cargo test)        # the room server's protocol rules
 ```
 
 ## Documentation
