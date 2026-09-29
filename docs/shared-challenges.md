@@ -528,7 +528,8 @@ pilots, and that a debug build without a server uses with a bot crew member. **T
 suite (`FakeRoomApiTest`) is the backend's contract test.** The HTTP client, `HttpRoomApi`, is the
 next stage: until it exists, `RoomApiProvider` in `src/release` maps a configured URL to
 `NoRoomApi` as well, so a release build can never talk to a server that has not been contract-tested,
-and `RoomApiProvider` in `src/debug` uses the fake when the URL is blank and exposes it as
+and `RoomApiProvider` in `src/debug` uses the fake when the URL is blank, keeps its rooms in a
+file (see [Debugging without a server](#debugging-without-a-server)) and exposes it as
 `RoomApiProvider.fake` for the debug receiver.
 
 ## Debugging without a server
@@ -537,8 +538,24 @@ A debug build with a blank `ROOM_SERVER_URL` runs against `FakeRoomApi`, and `De
 (registered in the debug manifest for `com.silas270.blocktime.DEBUG_ROOM`) plays a second pilot,
 "Bot Pilot", by mutating that fake directly, exactly as a second phone's uploads would. Nothing in
 it syncs: after each broadcast, bring the app to the foreground or open Challenges, and the real
-merge, presentation and log paths run on the result. Its KDoc is the manual checklist; the lines
-are:
+merge, presentation and log paths run on the result.
+
+The fake is persisted to `files/debug_rooms.json`: `CesiumGameActivity.onCreate` calls
+`RoomApiProvider.attach(filesDir)` before anything uses the room api (the receiver calls it too,
+for a broadcast that starts the process), which loads the stored rooms into the fake and saves
+them after every change, the bot's included. Without it a reinstall or a killed process would
+empty the fake, and the next sync would mark every shared row "Room closed". To start over with
+no rooms, delete the file and stop the app, because a running fake writes its rooms back on its
+next change:
+
+```
+adb shell run-as com.silas270.blocktime rm files/debug_rooms.json
+adb shell am force-stop com.silas270.blocktime
+```
+
+Shared rows the app still holds then read "Room closed" after the next sync. The release
+`attach` is a no-op. The receiver's KDoc is the manual
+checklist; the lines are:
 
 ```
 adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op join      # the bot joins every room

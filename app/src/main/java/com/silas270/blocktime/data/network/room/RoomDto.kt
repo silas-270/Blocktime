@@ -281,6 +281,22 @@ object RoomJson {
         null
     }
 
+    /** A list of rooms as the server holds them, for the debug fake's file (see [FakeRoomStore]). */
+    fun encodeRooms(rooms: List<RoomState>): String = gson.toJson(rooms.map { it.toDto() })
+
+    /**
+     * The rooms [encodeRooms] wrote, in the same order; a room that cannot be mapped is dropped.
+     * Empty on any parse failure, because a debug fake that starts empty is better than one
+     * that keeps the app from starting.
+     */
+    fun decodeRooms(json: String): List<RoomState> = try {
+        gson.fromJson(json, Array<RoomStateDto?>::class.java)?.mapNotNull { it?.toDomain() } ?: emptyList()
+    } catch (e: JsonParseException) {
+        emptyList()
+    } catch (e: IllegalStateException) {
+        emptyList()
+    }
+
     /**
      * The `shared_outcome` column codec: the wire's outcome shape with [SharedOutcome.bySelf]
      * written explicitly, since the row has no `selfCode` to re-derive it from on the way back.

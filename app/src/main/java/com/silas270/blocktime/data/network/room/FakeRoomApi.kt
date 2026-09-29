@@ -13,6 +13,16 @@ import com.silas270.blocktime.data.model.nextFreeColorIndex
 import kotlinx.coroutines.delay
 
 /**
+ * Where a [FakeRoomApi] keeps its rooms across process death. The debug build attaches a
+ * file-backed one, because an in-memory fake emptied by a reinstall or a killed process would
+ * make the next sync mark every shared row "Room closed". Tests attach an in-memory one.
+ */
+internal interface FakeRoomStore {
+    fun load(): List<RoomState>
+    fun save(rooms: List<RoomState>)
+}
+
+/**
  * An in-memory room server that applies the rules of docs/shared-challenges.md "Protocol". Unit
  * tests drive it to play the other pilots, and a debug build without a server uses it with a bot
  * crew member, so the whole flow can be walked on a phone before a backend exists. **Its test
@@ -23,7 +33,8 @@ import kotlinx.coroutines.delay
  * cannot see `src/debug`.
  *
  * Thread-safe: every access to the room map is under one lock, and the simulated latency is
- * waited out before the lock is taken.
+ * waited out before the lock is taken. With a [FakeRoomStore] attached, every mutation saves the
+ * whole map under the same lock, so the stored rooms are always a state the fake has held.
  */
 internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMillis) : RoomApi {
 
@@ -44,6 +55,26 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 
     private val lock = Any()
     private val rooms = mutableMapOf<String, RoomState>()
+    private var store: FakeRoomStore? = null
+
+    /**
+     * Replaces the rooms with those [store] holds and saves to it after every mutation from now
+     * on: create, put, leave, and every helper below that changes a room. Attach before the
+     * first call, so no room created earlier is dropped by the replacement.
+     */
+    fun attachStore(store: FakeRoomStore) {
+        val loaded = store.load()
+        synchronized(lock) {
+            rooms.clear()
+            loaded.associateByTo(rooms) { it.code }
+            this.store = store
+        }
+    }
+
+    /** Writes the map to the attached store. Called under [lock], after each mutation. */
+    private fun persist() {
+        store?.save(rooms.values.toList())
+    }
 
     override suspend fun ping(): Boolean {
         delay(latencyMs)
@@ -69,6 +100,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
                 version = 1L,
             )
             rooms[code] = room
+            persist()
             RoomResult.Ok(room)
         }
     }
@@ -115,6 +147,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 
             val updated = room.copy(participants = participants, outcome = outcome, version = room.version + 1)
             rooms[code] = updated
+            persist()
             RoomResult.Ok(updated)
         }
     }
@@ -128,6 +161,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
                 if (it.userCode == callerUserCode) it.copy(left = true, updatedAt = clock()) else it
             }
             rooms[code] = room.copy(participants = participants, version = room.version + 1)
+            persist()
             RoomResult.Ok(Unit)
         }
     }
@@ -145,6 +179,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
                 updatedAt = clock(),
             )
             rooms[code] = room.copy(participants = room.participants + snapshot, version = room.version + 1)
+            persist()
             snapshot
         }
 
@@ -160,6 +195,7 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
                 participants = room.participants.map { if (it.userCode == userCode) next else it },
                 version = room.version + 1,
             )
+            persist()
         }
     }
 
@@ -171,7 +207,10 @@ internal class FakeRoomApi(private val clock: () -> Long = System::currentTimeMi
 
     /** Puts a whole room in place, as it is, for tests that start from a prepared state. */
     fun seedRoom(state: RoomState) {
-        synchronized(lock) { rooms[state.code] = state }
+        synchronized(lock) {
+            rooms[state.code] = state
+            persist()
+        }
     }
 
     private fun ParticipantSnapshot.hasRouteProgress(): Boolean = routeProgress > 0f || legIndex > 0

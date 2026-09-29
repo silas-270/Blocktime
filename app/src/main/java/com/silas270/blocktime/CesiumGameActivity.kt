@@ -244,6 +244,10 @@ class CesiumGameActivity : GameActivity() {
         pendingFlightLoader = PendingFlightLoader(airportRepository)
         preferencesRepository = PreferencesRepository(applicationContext)
         offlineModeController = OfflineModeController.getInstance(applicationContext)
+        // Before the reachability signal and the first use of the room api, because attaching
+        // replaces the rooms the debug fake holds with those in its file (docs/shared-challenges.md
+        // "Debugging without a server"). A no-op in release and with a server URL.
+        RoomApiProvider.attach(filesDir)
         serverReachability = ServerReachability.getInstance(applicationContext)
         val roomApi = RoomApiProvider.roomApi
         com.silas270.blocktime.ui.theme.ThemeModeHolder.current = preferencesRepository.getThemeMode()

@@ -370,4 +370,57 @@ class FakeRoomApiTest {
 
         assertEquals(seeded, api.getRoom("SEED01").value())
     }
+
+    /** Keeps the rooms in memory, as the list the fake last saved. */
+    private class ListStore : FakeRoomStore {
+        var rooms: List<RoomState> = emptyList()
+        override fun load(): List<RoomState> = rooms
+        override fun save(rooms: List<RoomState>) {
+            this.rooms = rooms
+        }
+    }
+
+    /** Keeps the rooms in memory as the JSON the debug build writes to `debug_rooms.json`. */
+    private class JsonStore : FakeRoomStore {
+        var json: String? = null
+        override fun load(): List<RoomState> = json?.let { RoomJson.decodeRooms(it) } ?: emptyList()
+        override fun save(rooms: List<RoomState>) {
+            json = RoomJson.encodeRooms(rooms)
+        }
+    }
+
+    @Test
+    fun `a room created through one fake is visible to a second fake that attaches the same store`() = runTest {
+        val store = ListStore()
+        api.attachStore(store)
+        val room = create()
+
+        val second = FakeRoomApi(clock = { now }).apply { attachStore(store) }
+
+        assertEquals(room, second.getRoom(room.code).value())
+    }
+
+    @Test
+    fun `every mutation is saved, the simulated pilots' included, and survives the JSON file`() = runTest {
+        val store = JsonStore()
+        api.attachStore(store)
+        val room = create()
+        api.addSimulatedParticipant(room.code, "ANNA01", "Anna")
+        api.advanceSimulated(room.code, "ANNA01") { it.copy(distanceKm = 500.0, visitedMembers = setOf("EU")) }
+        api.putSnapshot(room.code, self.copy(distanceKm = 100.0), OutcomeClaim.Completed(at = now))
+        api.leaveRoom(room.code)
+        api.seedRoom(RoomState(code = "SEED01", definition = race, participants = listOf(self), version = 40L))
+
+        val reloaded = FakeRoomApi(clock = { now }).apply { attachStore(store) }
+
+        assertEquals(api.roomCodes(), reloaded.roomCodes())
+        assertEquals(api.room(room.code), reloaded.room(room.code))
+        assertEquals(api.room("SEED01"), reloaded.room("SEED01"))
+    }
+
+    @Test
+    fun `an unreadable store file loads as no rooms`() {
+        assertEquals(emptyList<RoomState>(), RoomJson.decodeRooms("not json"))
+        assertEquals(emptyList<RoomState>(), RoomJson.decodeRooms(""))
+    }
 }

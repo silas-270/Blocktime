@@ -72,6 +72,9 @@ class DebugRoomReceiver : BroadcastReceiver() {
             Log.w(TAG, "No fake room api: this build has a ROOM_SERVER_URL, so the bot cannot play")
             return
         }
+        // A broadcast can start the process without the Activity, so the fake would still be
+        // empty here; attaching loads the rooms from their file, and is a no-op once attached.
+        RoomApiProvider.attach(context.filesDir)
         val op = intent.getStringExtra("op") ?: "advance"
         val codes = fake.roomCodes()
         if (codes.isEmpty()) {
