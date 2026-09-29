@@ -72,9 +72,37 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+/**
+ * Adds the shared-challenge columns to `challenges` (docs/shared-challenges.md "Data model"):
+ * the room link, the room-state cache, the two sync generations and the shared outcome, plus the
+ * unique `(user_id, room_code)` index that keeps one row per room per pilot.
+ *
+ * Every existing row is a solo challenge and must come out the far side as one: the three
+ * nullable columns default to NULL on their own, and NULL `room_code` is exactly the "not shared"
+ * marker. The two NOT NULL generation counters need the explicit DEFAULT for the rows that
+ * already exist, and the entity has to declare the same one, or Room's validation rejects a
+ * migration that is actually correct (the same trap `streak_days` fell into in MIGRATION_6_7).
+ * Both start equal, so no existing row reads as pending upload. The index name is the one Room
+ * generates for `Index(value = ["user_id", "room_code"])`, which is what the schema validation
+ * compares against.
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `challenges` ADD COLUMN `room_code` TEXT")
+        db.execSQL("ALTER TABLE `challenges` ADD COLUMN `room_state` TEXT")
+        db.execSQL("ALTER TABLE `challenges` ADD COLUMN `sync_generation` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `challenges` ADD COLUMN `synced_generation` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `challenges` ADD COLUMN `shared_outcome` TEXT")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_challenges_user_id_room_code` " +
+                "ON `challenges` (`user_id`, `room_code`)"
+        )
+    }
+}
+
 @Database(
     entities = [UserProfile::class, FlightLog::class, Challenge::class, AchievementUnlock::class],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -107,7 +135,9 @@ abstract class AppDatabase : RoomDatabase() {
                     //
                     // Every version bump from here needs a Migration here and a committed
                     // schemas/*.json for the version it migrates from.
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                    )
                     .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5)
                     .build()
                 INSTANCE = instance

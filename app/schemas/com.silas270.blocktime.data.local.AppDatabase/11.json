@@ -1,0 +1,462 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 11,
+    "identityHash": "edb8625fbd00374e5a90bb00df1a2285",
+    "entities": [
+      {
+        "tableName": "user_profile",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `username` TEXT NOT NULL, `user_code` TEXT NOT NULL, `home_airport_iata` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userCode",
+            "columnName": "user_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeAirportIata",
+            "columnName": "home_airport_iata",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_user_profile_user_code",
+            "unique": true,
+            "columnNames": [
+              "user_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_user_profile_user_code` ON `${TABLE_NAME}` (`user_code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "flight_log",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` INTEGER NOT NULL, `flight_number` TEXT NOT NULL, `origin_iata` TEXT NOT NULL, `dest_iata` TEXT NOT NULL, `duration_min` INTEGER NOT NULL, `distance_km` REAL NOT NULL, `completed_at` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `mode` TEXT NOT NULL DEFAULT 'STORY', FOREIGN KEY(`user_id`) REFERENCES `user_profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "flightNumber",
+            "columnName": "flight_number",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originIata",
+            "columnName": "origin_iata",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destIata",
+            "columnName": "dest_iata",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMin",
+            "columnName": "duration_min",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceKm",
+            "columnName": "distance_km",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'STORY'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_flight_log_user_id",
+            "unique": false,
+            "columnNames": [
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_flight_log_user_id` ON `${TABLE_NAME}` (`user_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "user_profile",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "user_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "challenges",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` INTEGER NOT NULL, `type` TEXT NOT NULL, `source` TEXT NOT NULL, `status` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `origin_iata` TEXT, `dest_iata` TEXT, `position_iata` TEXT, `route_progress_fraction` REAL NOT NULL, `predefined_route_id` TEXT, `leg_index` INTEGER NOT NULL DEFAULT 0, `set_catalog_id` TEXT, `set_member_kind` TEXT, `set_total_members` INTEGER NOT NULL, `set_visited_members` TEXT NOT NULL, `target_distance_km` REAL, `cumulative_distance_km` REAL NOT NULL, `target_days` INTEGER, `streak_days` INTEGER NOT NULL DEFAULT 0, `last_flown_day` TEXT, `paused_flight` TEXT, `icon_name` TEXT, `started_at` INTEGER NOT NULL, `completed_at` INTEGER, `celebrated` INTEGER NOT NULL DEFAULT 0, `room_code` TEXT, `room_state` TEXT, `sync_generation` INTEGER NOT NULL DEFAULT 0, `synced_generation` INTEGER NOT NULL DEFAULT 0, `shared_outcome` TEXT, FOREIGN KEY(`user_id`) REFERENCES `user_profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originIata",
+            "columnName": "origin_iata",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "destIata",
+            "columnName": "dest_iata",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "positionIata",
+            "columnName": "position_iata",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "routeProgressFraction",
+            "columnName": "route_progress_fraction",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "predefinedRouteId",
+            "columnName": "predefined_route_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "legIndex",
+            "columnName": "leg_index",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "setCatalogId",
+            "columnName": "set_catalog_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "setMemberKind",
+            "columnName": "set_member_kind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "setTotalMembers",
+            "columnName": "set_total_members",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "visitedSetMembers",
+            "columnName": "set_visited_members",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetDistanceKm",
+            "columnName": "target_distance_km",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "cumulativeDistanceKm",
+            "columnName": "cumulative_distance_km",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetDays",
+            "columnName": "target_days",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "streakDays",
+            "columnName": "streak_days",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "lastFlownDay",
+            "columnName": "last_flown_day",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pausedFlight",
+            "columnName": "paused_flight",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "iconName",
+            "columnName": "icon_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "started_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "celebrated",
+            "columnName": "celebrated",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "roomCode",
+            "columnName": "room_code",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "roomState",
+            "columnName": "room_state",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncGeneration",
+            "columnName": "sync_generation",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "syncedGeneration",
+            "columnName": "synced_generation",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sharedOutcome",
+            "columnName": "shared_outcome",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_challenges_user_id",
+            "unique": false,
+            "columnNames": [
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_challenges_user_id` ON `${TABLE_NAME}` (`user_id`)"
+          },
+          {
+            "name": "index_challenges_user_id_status",
+            "unique": false,
+            "columnNames": [
+              "user_id",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_challenges_user_id_status` ON `${TABLE_NAME}` (`user_id`, `status`)"
+          },
+          {
+            "name": "index_challenges_user_id_room_code",
+            "unique": true,
+            "columnNames": [
+              "user_id",
+              "room_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_challenges_user_id_room_code` ON `${TABLE_NAME}` (`user_id`, `room_code`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "user_profile",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "user_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "achievement_unlocks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`user_id` INTEGER NOT NULL, `achievement_id` TEXT NOT NULL, `unlocked_at` INTEGER NOT NULL, PRIMARY KEY(`user_id`, `achievement_id`), FOREIGN KEY(`user_id`) REFERENCES `user_profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "achievementId",
+            "columnName": "achievement_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unlockedAt",
+            "columnName": "unlocked_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "user_id",
+            "achievement_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_achievement_unlocks_user_id",
+            "unique": false,
+            "columnNames": [
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_achievement_unlocks_user_id` ON `${TABLE_NAME}` (`user_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "user_profile",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "user_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'edb8625fbd00374e5a90bb00df1a2285')"
+    ]
+  }
+}

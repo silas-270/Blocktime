@@ -28,6 +28,12 @@ import androidx.room.PrimaryKey
  *
  * [source] and [status] apply to every type. The 3-active cap and "abandon deletes the row
  * entirely" live in `ChallengeRepository`, not here - this class is pure storage shape.
+ *
+ * Shared (docs/shared-challenges.md "Data model"), orthogonal to type and source: [roomCode]
+ * non-null means the row is a participant in a room, [roomState] caches the last room state
+ * seen, [syncGeneration]/[syncedGeneration] say whether the pilot's own data still needs
+ * uploading, and [sharedOutcome] records how the room ended. Team progress is never stored; it
+ * is derived from this row plus the cache (`SharedProgress.kt`).
  */
 @Entity(
     tableName = "challenges",
@@ -39,7 +45,14 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["user_id"]), Index(value = ["user_id", "status"])]
+    indices = [
+        Index(value = ["user_id"]),
+        Index(value = ["user_id", "status"]),
+        // One row per room per pilot, so a finished room cannot be joined twice (J6b). SQLite
+        // treats NULLs as distinct in a unique index, so every unshared row keeps its NULL
+        // room_code without colliding.
+        Index(value = ["user_id", "room_code"], unique = true)
+    ]
 )
 data class Challenge(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -115,5 +128,31 @@ data class Challenge(
     // COMPLETED challenge with this still false keeps occupying its slot (and the cap) and is
     // excluded from the completed-log query - see docs/challenges.md and docs/state.md. Same
     // defaultValue reasoning as legIndex/streakDays above.
-    @ColumnInfo(name = "celebrated", defaultValue = "0") val celebrated: Boolean = false
+    @ColumnInfo(name = "celebrated", defaultValue = "0") val celebrated: Boolean = false,
+
+    // ── Shared (docs/shared-challenges.md "Data model") ─────────────────────────────────
+    // Non-null means shared: this row is one participant's view of a room. Stays on terminal
+    // rows so a finished room cannot be joined twice, which the unique (user_id, room_code)
+    // index above enforces.
+    @ColumnInfo(name = "room_code") val roomCode: String? = null,
+    // The last room state seen, with the pilot's own code (see RoomStateCache). A CACHE in
+    // docs/state.md's sense: it may be thrown away without changing anything the pilot owns,
+    // and the next sync rebuilds it. Every "the others" value on screen comes from here; the
+    // pilot's own values never do (SharedProgress.kt). Stored as JSON via a TypeConverter.
+    @ColumnInfo(name = "room_state") val roomState: RoomStateCache? = null,
+    // Incremented by every local change to the pilot's own data on this row. The row needs
+    // uploading iff it differs from syncedGeneration. Same defaultValue reasoning as
+    // legIndex/streakDays above: MIGRATION_10_11 adds a NOT NULL column and Room validates the
+    // declared default against the migrated schema.
+    @ColumnInfo(name = "sync_generation", defaultValue = "0") val syncGeneration: Long = 0L,
+    // The generation the server last confirmed. Two counters rather than a "needs upload" flag
+    // because a landing can be credited while an upload is in flight: the upload confirms the
+    // generation it sent, that confirmation is a no-op if the row has moved on, and the newer
+    // state goes with the next sync. Same defaultValue reasoning as syncGeneration.
+    @ColumnInfo(name = "synced_generation", defaultValue = "0") val syncedGeneration: Long = 0L,
+    // How the room ended: who completed it, whether that was this pilot, race placements, or
+    // who broke the streak. A FACT, not a cache: it is what the completed log and the
+    // presentation read, and it is kept after the room itself is gone. Stored as JSON via a
+    // TypeConverter, with `bySelf` written explicitly (RoomJson.encodeOutcome).
+    @ColumnInfo(name = "shared_outcome") val sharedOutcome: SharedOutcome? = null
 )

@@ -280,7 +280,9 @@ class LocalChallengeRepository(
             routeProgressFraction = updated.routeProgressFraction,
             legIndex = updated.legIndex,
             status = updated.status,
-            completedAt = updated.completedAt
+            completedAt = updated.completedAt,
+            // Unchanged for now: bumping it on a shared row is the sync stage's job.
+            syncGeneration = updated.syncGeneration
         )
     }
 

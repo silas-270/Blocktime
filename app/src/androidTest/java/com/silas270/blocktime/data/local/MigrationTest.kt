@@ -220,4 +220,83 @@ class MigrationTest {
             assertEquals("an active challenge is untouched by the backfill", 0, cursor.getInt(1))
         }
     }
+
+    /**
+     * The shared-challenge columns (docs/shared-challenges.md "Data model"). Every row that
+     * exists before this migration is a solo challenge and must come out the far side as one:
+     * NULL room code (which is the "not shared" marker), no cache, no outcome, and both
+     * generations at zero and equal, so nothing reads as pending upload. The unique
+     * `(user_id, room_code)` index is asserted by name and by behaviour, because the join path
+     * relies on it to refuse a second row for a finished room (situation J6b), while NULL room
+     * codes must keep not colliding or a pilot could only ever have one solo challenge.
+     */
+    @Test
+    fun migrate10To11_leavesExistingChallengesSoloAndAddsTheRoomIndex() {
+        helper.createDatabase(TEST_DB, 10).apply {
+            execSQL(
+                """
+                INSERT INTO user_profile
+                    (id, username, user_code, home_airport_iata, created_at, updated_at)
+                VALUES (1, 'testpilot', 'FF-TEST', 'LHR', 1700000000000, 1700000000000)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO challenges
+                    (id, user_id, type, source, status, name, description, route_progress_fraction,
+                     target_distance_km, cumulative_distance_km, set_total_members,
+                     set_visited_members, started_at, streak_days, leg_index, celebrated)
+                VALUES (1, 1, 'DISTANCE', 'CUSTOM', 'ACTIVE', 'Still going', '', 0.0, 1000.0,
+                        200.0, 0, '', 1700000000000, 0, 0, 0)
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 11, true, MIGRATION_10_11)
+
+        db.query(
+            "SELECT room_code, room_state, sync_generation, synced_generation, shared_outcome FROM challenges"
+        ).use { cursor ->
+            assertTrue("the challenge must survive the migration", cursor.moveToFirst())
+            assertTrue("an existing challenge must stay unshared", cursor.isNull(0))
+            assertTrue("an existing challenge has no room cache", cursor.isNull(1))
+            assertEquals(0L, cursor.getLong(2))
+            assertEquals("nothing pre-existing may read as pending upload", 0L, cursor.getLong(3))
+            assertTrue("an existing challenge has no shared outcome", cursor.isNull(4))
+        }
+
+        db.query("PRAGMA index_list('challenges')").use { cursor ->
+            var found = false
+            var unique = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == "index_challenges_user_id_room_code") {
+                    found = true
+                    unique = cursor.getInt(cursor.getColumnIndexOrThrow("unique")) == 1
+                }
+            }
+            assertTrue("the room index must exist under Room's generated name", found)
+            assertTrue("the room index must be unique", unique)
+        }
+
+        val sharedRow = { id: Int, roomCode: String? ->
+            """
+            INSERT INTO challenges
+                (id, user_id, type, source, status, name, description, route_progress_fraction,
+                 target_distance_km, cumulative_distance_km, set_total_members,
+                 set_visited_members, started_at, room_code)
+            VALUES ($id, 1, 'DISTANCE', 'CUSTOM', 'ACTIVE', 'Shared', '', 0.0, 1000.0, 0.0, 0, '',
+                    1700000000000, ${roomCode?.let { "'$it'" } ?: "NULL"})
+            """.trimIndent()
+        }
+        db.execSQL(sharedRow(2, "ABC234"))
+        val duplicate = runCatching { db.execSQL(sharedRow(3, "ABC234")) }
+        assertTrue("a second row for the same room and pilot must be refused", duplicate.isFailure)
+        // NULL is distinct from NULL in a SQLite unique index: solo rows keep not colliding.
+        db.execSQL(sharedRow(4, null))
+        db.query("SELECT COUNT(*) FROM challenges").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(3, cursor.getInt(0))
+        }
+    }
 }

@@ -181,4 +181,27 @@ class RoomDtoMappingTest {
         listOf("", "not json", "{", "[]", "42", "{\"selfCode\":5,\"room\":\"nope\"}", "{\"selfCode\":\"S\",\"room\":{\"code\":[]}}")
             .forEach { assertNull("input: $it", RoomJson.decodeCache(it)) }
     }
+
+    @Test
+    fun `the shared_outcome column keeps bySelf across the round trip without a self code`() {
+        // The column has no selfCode next to it, so the stamp has to be in the JSON itself.
+        val won = SharedOutcome.Completed(byUserCode = "SELF01", bySelf = true, at = 4_000L, placements = listOf("SELF01", "ANNA02"))
+        val lost = SharedOutcome.Failed(brokenByUserCode = "ANNA02", bySelf = false, at = 5_000L)
+        assertEquals(won, RoomJson.decodeOutcome(RoomJson.encodeOutcome(won)))
+        assertEquals(lost, RoomJson.decodeOutcome(RoomJson.encodeOutcome(lost)))
+
+        // Without a stamp (wire-shaped JSON) the self code decides, and with neither it is false.
+        val wire = """{"kind":"completed","byUserCode":"SELF01","at":4000}"""
+        assertTrue(RoomJson.decodeOutcome(wire, selfCode = "SELF01")!!.bySelf)
+        assertFalse(RoomJson.decodeOutcome(wire)!!.bySelf)
+
+        // The wire mapping still ignores the stamp, so a peer's JSON can never claim to be us.
+        assertFalse(RoomJson.gson.fromJson(RoomJson.encodeOutcome(won), OutcomeDto::class.java).toDomain()!!.bySelf)
+    }
+
+    @Test
+    fun `decodeOutcome on garbage or an unknown kind is null`() {
+        listOf("", "not json", "{", "[]", "{\"kind\":\"draw\"}", "{\"kind\":5}")
+            .forEach { assertNull("input: $it", RoomJson.decodeOutcome(it)) }
+    }
 }

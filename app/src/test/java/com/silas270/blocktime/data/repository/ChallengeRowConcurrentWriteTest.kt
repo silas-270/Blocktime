@@ -10,7 +10,9 @@ import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.FlightMode
 import com.silas270.blocktime.data.model.PausedFlight
+import com.silas270.blocktime.data.model.RoomStateCache
 import com.silas270.blocktime.data.model.Runway
+import com.silas270.blocktime.data.model.SharedOutcome
 import com.silas270.blocktime.data.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,7 +81,8 @@ class ChallengeRowConcurrentWriteTest {
             routeProgressFraction: Float,
             legIndex: Int,
             status: ChallengeStatus,
-            completedAt: Long?
+            completedAt: Long?,
+            syncGeneration: Long
         ) {
             rows[id]?.let {
                 rows[id] = it.copy(
@@ -87,7 +90,8 @@ class ChallengeRowConcurrentWriteTest {
                     routeProgressFraction = routeProgressFraction,
                     legIndex = legIndex,
                     status = status,
-                    completedAt = completedAt
+                    completedAt = completedAt,
+                    syncGeneration = syncGeneration
                 )
             }
         }
@@ -103,13 +107,17 @@ class ChallengeRowConcurrentWriteTest {
         override suspend fun getByStatusOrderedByCompletedAt(userId: Int, status: ChallengeStatus) =
             rows.values.filter { it.userId == userId && it.status == status }
 
-        override fun getSlotDisplayFlow(userId: Int, active: ChallengeStatus, completed: ChallengeStatus): Flow<List<Challenge>> =
-            MutableStateFlow(
-                rows.values.filter { it.userId == userId && (it.status == active || (it.status == completed && !it.celebrated)) }
-            )
+        /** Mirrors the DAO's slot predicate: ACTIVE, or terminal (COMPLETED or FAILED) and not
+         *  yet presented. */
+        private fun Challenge.occupiesSlot(): Boolean =
+            status == ChallengeStatus.ACTIVE ||
+                ((status == ChallengeStatus.COMPLETED || status == ChallengeStatus.FAILED) && !celebrated)
 
-        override suspend fun countOccupyingSlots(userId: Int, active: ChallengeStatus, completed: ChallengeStatus): Int =
-            rows.values.count { it.userId == userId && (it.status == active || (it.status == completed && !it.celebrated)) }
+        override fun getSlotDisplayFlow(userId: Int): Flow<List<Challenge>> =
+            MutableStateFlow(rows.values.filter { it.userId == userId && it.occupiesSlot() })
+
+        override suspend fun countOccupyingSlots(userId: Int): Int =
+            rows.values.count { it.userId == userId && it.occupiesSlot() }
 
         override suspend fun getCelebratedCompletedOrderedByCompletedAt(userId: Int): List<Challenge> =
             rows.values.filter { it.userId == userId && it.status == ChallengeStatus.COMPLETED && it.celebrated }
@@ -117,6 +125,65 @@ class ChallengeRowConcurrentWriteTest {
         override suspend fun markCelebrated(id: Int) {
             rows[id]?.let { rows[id] = it.copy(celebrated = true) }
         }
+
+        override suspend fun updateSharedFields(
+            id: Int,
+            status: ChallengeStatus,
+            completedAt: Long?,
+            roomState: RoomStateCache?,
+            sharedOutcome: SharedOutcome?
+        ) {
+            rows[id]?.let {
+                rows[id] = it.copy(status = status, completedAt = completedAt, roomState = roomState, sharedOutcome = sharedOutcome)
+            }
+        }
+
+        override suspend fun updateSharedFieldsAndClearPausedFlight(
+            id: Int,
+            status: ChallengeStatus,
+            completedAt: Long?,
+            roomState: RoomStateCache?,
+            sharedOutcome: SharedOutcome?
+        ) {
+            rows[id]?.let {
+                rows[id] = it.copy(
+                    status = status,
+                    completedAt = completedAt,
+                    roomState = roomState,
+                    sharedOutcome = sharedOutcome,
+                    pausedFlight = null
+                )
+            }
+        }
+
+        override suspend fun updateRoomState(id: Int, roomState: RoomStateCache?) {
+            rows[id]?.let { rows[id] = it.copy(roomState = roomState) }
+        }
+
+        override suspend fun bumpSyncGeneration(id: Int) {
+            rows[id]?.let { rows[id] = it.copy(syncGeneration = it.syncGeneration + 1) }
+        }
+
+        override suspend fun confirmSynced(id: Int, generation: Long) {
+            rows[id]?.takeIf { it.syncGeneration == generation }?.let { rows[id] = it.copy(syncedGeneration = generation) }
+        }
+
+        override suspend fun updateRoomLink(id: Int, roomCode: String?, roomState: RoomStateCache?) {
+            rows[id]?.let { rows[id] = it.copy(roomCode = roomCode, roomState = roomState) }
+        }
+
+        override suspend fun getSyncable(userId: Int): List<Challenge> =
+            rows.values.filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || !it.celebrated) }
+
+        override suspend fun getByRoomCode(userId: Int, roomCode: String): Challenge? =
+            rows.values.firstOrNull { it.userId == userId && it.roomCode == roomCode }
+
+        override suspend fun countPendingPresentation(userId: Int): Int =
+            rows.values.count {
+                it.userId == userId &&
+                    (it.status == ChallengeStatus.COMPLETED || it.status == ChallengeStatus.FAILED) &&
+                    !it.celebrated
+            }
     }
 
     private class FakeUserProfileDao : UserProfileDao {

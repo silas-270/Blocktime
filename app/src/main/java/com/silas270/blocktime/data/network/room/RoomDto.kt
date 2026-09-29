@@ -56,12 +56,20 @@ data class RoomDefinitionDto(
     val targetDays: Int? = null,
 )
 
-/** [kind] is [KIND_COMPLETED] or [KIND_FAILED]; [byUserCode] is the winner or the streak breaker. */
+/**
+ * [kind] is [KIND_COMPLETED] or [KIND_FAILED]; [byUserCode] is the winner or the streak breaker.
+ *
+ * [bySelf] is never set on the wire (the server does not know who is asking) and is ignored in
+ * the `room_state` cache, where it is re-derived from `selfCode`. Only the `shared_outcome`
+ * column writes it, because that column has no `selfCode` next to it and the stamp must
+ * survive the round trip through the row (docs/shared-challenges.md "Data model").
+ */
 data class OutcomeDto(
     val kind: String? = null,
     val byUserCode: String? = null,
     val at: Long? = null,
     val placements: List<String>? = null,
+    val bySelf: Boolean? = null,
 )
 
 data class RoomStateDto(
@@ -267,6 +275,28 @@ object RoomJson {
      */
     fun decodeCache(json: String): RoomStateCache? = try {
         gson.fromJson(json, RoomStateCacheDto::class.java)?.toDomain()
+    } catch (e: JsonParseException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    }
+
+    /**
+     * The `shared_outcome` column codec: the wire's outcome shape with [SharedOutcome.bySelf]
+     * written explicitly, since the row has no `selfCode` to re-derive it from on the way back.
+     */
+    fun encodeOutcome(outcome: SharedOutcome): String =
+        gson.toJson(outcome.toDto().copy(bySelf = outcome.bySelf))
+
+    /**
+     * Null on a parse failure or an unknown kind. `bySelf` comes from the stored stamp when
+     * there is one, and otherwise from comparing the code on the outcome with [selfCode], the
+     * same rule the cache mapping uses; with neither it is false.
+     */
+    fun decodeOutcome(json: String, selfCode: String? = null): SharedOutcome? = try {
+        gson.fromJson(json, OutcomeDto::class.java)?.let { dto ->
+            dto.toDomain(bySelf = dto.bySelf ?: (selfCode != null && dto.byUserCode == selfCode))
+        }
     } catch (e: JsonParseException) {
         null
     } catch (e: IllegalStateException) {

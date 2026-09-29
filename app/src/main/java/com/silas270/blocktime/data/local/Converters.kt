@@ -6,13 +6,19 @@ import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.FlightMode
 import com.silas270.blocktime.data.model.PausedFlight
+import com.silas270.blocktime.data.model.RoomStateCache
 import com.silas270.blocktime.data.model.SetMemberKind
+import com.silas270.blocktime.data.model.SharedOutcome
+import com.silas270.blocktime.data.network.room.RoomJson
 
 /**
  * Room [TypeConverter]s for enum (and one Set<String>) columns: [FlightMode] (`FlightLog.mode`)
  * plus the `Challenge` entity's [ChallengeType]/[ChallengeSource]/[ChallengeStatus]/
  * [SetMemberKind] and its `visitedSetMembers` field. Enums are stored as their plain
  * enum-constant name - the simplest representation for a small, stable set of values.
+ *
+ * The two shared-challenge columns (`room_state`, `shared_outcome`) are JSON through [RoomJson],
+ * the same flat DTOs the wire uses, so there is one codec for a room state, not two.
  */
 class Converters {
     @TypeConverter
@@ -39,6 +45,9 @@ class Converters {
     @TypeConverter
     fun fromChallengeStatus(status: ChallengeStatus): String = status.name
 
+    /** The ACTIVE fallback is a guard against a corrupted value, not a downgrade path: an
+     *  older app never opens a newer schema (AppDatabase has no destructive fallback on
+     *  downgrade), so a `FAILED` row is never read by a build that does not know the name. */
     @TypeConverter
     fun toChallengeStatus(value: String): ChallengeStatus =
         runCatching { ChallengeStatus.valueOf(value) }.getOrDefault(ChallengeStatus.ACTIVE)
@@ -68,4 +77,24 @@ class Converters {
 
     @TypeConverter
     fun toPausedFlight(value: String?): PausedFlight? = value?.let { PausedFlight.parse(it) }
+
+    /** `Challenge.roomState` - the last room state seen, as the same JSON the server sends.
+     *  A decode failure reads as null rather than throwing, because the column is a cache
+     *  (docs/shared-challenges.md "Data model"): dropping it changes nothing the pilot owns, and
+     *  the next sync rebuilds it. */
+    @TypeConverter
+    fun fromRoomStateCache(value: RoomStateCache?): String? = value?.let { RoomJson.encodeCache(it) }
+
+    @TypeConverter
+    fun toRoomStateCache(value: String?): RoomStateCache? = value?.let { RoomJson.decodeCache(it) }
+
+    /** `Challenge.sharedOutcome` - how the room ended, as the wire's outcome JSON plus the
+     *  `bySelf` stamp the merge added. Unlike the cache this is a fact, so a decode failure
+     *  reading as null is a loss; it is accepted over a crash on read, and the shape is ours to
+     *  keep stable. */
+    @TypeConverter
+    fun fromSharedOutcome(value: SharedOutcome?): String? = value?.let { RoomJson.encodeOutcome(it) }
+
+    @TypeConverter
+    fun toSharedOutcome(value: String?): SharedOutcome? = value?.let { RoomJson.decodeOutcome(it) }
 }
