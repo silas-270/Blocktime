@@ -5,6 +5,7 @@ The debug build's bot only exists with the in-memory fake. With ROOM_SERVER_URL 
 the crew instead: it joins the room the phone shared, reports progress and claims outcomes over
 the same protocol the app speaks (docs/shared-challenges.md "Protocol").
 
+    tools/room_bot.py create '{"type": "ROUTE", "source": "CUSTOM", "name": "JFK to Boston", "originIata": "JFK", "destIata": "BOS"}'
     tools/room_bot.py show  ROOM42
     tools/room_bot.py join  ROOM42 --name "Bot Pilot"
     tools/room_bot.py put   ROOM42 --km 300          # distance pool: flown so far, in km
@@ -104,8 +105,8 @@ def show(room):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["show", "join", "put", "claim", "fail", "leave", "whoami"])
-    parser.add_argument("room", nargs="?")
+    parser.add_argument("command", choices=["create", "show", "join", "put", "claim", "fail", "leave", "whoami"])
+    parser.add_argument("room", nargs="?", help="the room code, or for create the definition as JSON")
     parser.add_argument("--pilot", default="bot", help="which bot identity to use")
     parser.add_argument("--name", help="the bot's pilot name")
     parser.add_argument("--km", type=float, help="distance flown, in km")
@@ -126,6 +127,14 @@ def main():
         return
     if not args.room:
         parser.error("a room code is needed")
+    if args.command == "create":
+        snapshot = {"userCode": bot["code"], "username": args.name or "Bot Pilot"}
+        status, room = call("POST", "/rooms", bot, {"definition": json.loads(args.room), "snapshot": snapshot})
+        if status != 201:
+            return print(status, room)
+        bot["snapshots"][room["code"]] = snapshot
+        save_state(state)
+        return show(room)
     room_code = args.room.strip().upper()
 
     if args.command == "show":
