@@ -53,12 +53,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.repository.MAX_ACTIVE_CHALLENGES
 import com.silas270.blocktime.data.repository.StartChallengeResult
 import com.silas270.blocktime.data.repository.SyncSummary
+import com.silas270.blocktime.domain.CompletionPresentation
+import com.silas270.blocktime.domain.FailurePresentation
+import com.silas270.blocktime.domain.failurePresentationFor
 import com.silas270.blocktime.domain.onlineAvailability
+import com.silas270.blocktime.domain.presentationFor
 import com.silas270.blocktime.data.model.AchievementCategory
 import com.silas270.blocktime.data.model.AchievementStatus
 import com.silas270.blocktime.ui.components.AchievementDetailModal
@@ -416,18 +421,37 @@ fun ChallengesScreen(
         }
 
         // Rendered last so it sits on top of - and its scrim blocks taps into - everything else on
-        // this screen, including the modals above, whenever a completion is queued.
-        ChallengeCompletionOverlay(
-            current = currentCelebration,
-            slotRect = celebratingSlotIndex?.let { slotBoundsByIndex[it] },
-            logAnchorRect = logAnchorRect,
-            isFirstCelebration = celebratedIds.isEmpty(),
-            onFlyInStart = { isCardLiftingOff = true },
-            onCelebrated = { id ->
-                celebratedIds = celebratedIds + id
-                viewModel.celebrate(id)
-            }
-        )
+        // this screen, including the modals above, whenever a presentation is queued. The row's
+        // status picks the overlay (docs/shared-challenges.md "Presentation"): a completion
+        // celebrates into the log, a failed streak shatters and is then deleted. Both compact the
+        // slot row through the same lift-off flag and celebrated set.
+        if (currentCelebration != null && currentCelebration.status == ChallengeStatus.FAILED) {
+            ChallengeFailureOverlay(
+                current = currentCelebration,
+                presentation = failurePresentationFor(currentCelebration)
+                    ?: FailurePresentation.StreakBroken(brokenByName = null, bySelf = false),
+                slotRect = celebratingSlotIndex?.let { slotBoundsByIndex[it] },
+                isFirst = celebratedIds.isEmpty(),
+                onFlyInStart = { isCardLiftingOff = true },
+                onPresented = { id ->
+                    celebratedIds = celebratedIds + id
+                    viewModel.dismissFailed(id)
+                }
+            )
+        } else {
+            ChallengeCompletionOverlay(
+                current = currentCelebration,
+                slotRect = celebratingSlotIndex?.let { slotBoundsByIndex[it] },
+                logAnchorRect = logAnchorRect,
+                presentation = currentCelebration?.let { presentationFor(it) } ?: CompletionPresentation.Solo,
+                isFirstCelebration = celebratedIds.isEmpty(),
+                onFlyInStart = { isCardLiftingOff = true },
+                onCelebrated = { id ->
+                    celebratedIds = celebratedIds + id
+                    viewModel.celebrate(id)
+                }
+            )
+        }
     }
 }
 

@@ -36,6 +36,34 @@ import java.time.LocalDate
  * unvisited member of the definition for a set, one more day (flown today) for a streak, and one
  * leg (a third of the route) for a race, which the bot claims as completed once it reaches the
  * end. `break` and `win` are the two outcomes a merge can only receive from someone else.
+ *
+ * `present` drives one presentation (docs/shared-challenges.md "Presentation") on the first room
+ * the fake holds, so the four shared beats can be checked one after the other. It takes a second
+ * extra, `mode`, and the room has to be of the right type for it:
+ *
+ * ```
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode team
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode won
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode placed
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode broken
+ * ```
+ *
+ * - `team` (a distance, set or streak room): the bot joins if it has not, advances until its own
+ *   contribution alone fills the pool, and claims the completion, as a second phone whose merge
+ *   saw the pool fill would. The next sync completes the row through the server's outcome (merge
+ *   rule 4) and Challenges plays the team celebration with the "CREW ×2" badge; the log entry
+ *   wears the same stamp.
+ * - `won` (a route room): the bot only joins, so the crew is two. Fly the route yourself; your
+ *   own arrival wins the race (L2) and Challenges plays "YOU WON THE RACE".
+ * - `placed` (a route room): the bot joins and claims the finish, the same as `join` then `win`.
+ *   The next sync places you second: "BOT PILOT WON · YOU FINISHED 2ND", half the confetti,
+ *   "GG", and the log entry stamped "2ND".
+ * - `broken` (a streak room): the bot joins and reports its streak dead, the same as `join` then
+ *   `break`. The next sync fails the row and Challenges plays the shatter: "STREAK BROKEN",
+ *   "Bot Pilot missed a day", "DAMN", then the row is deleted and the slot frees. For "You missed
+ *   a day" instead, share a streak, let the bot join, and skip a day yourself.
+ *
+ * After each broadcast, bring the app to the foreground or open Challenges to sync.
  */
 class DebugRoomReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -50,19 +78,26 @@ class DebugRoomReceiver : BroadcastReceiver() {
             Log.w(TAG, "The fake holds no rooms; share a challenge from the info modal first")
             return
         }
+        val mode = intent.getStringExtra("mode")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                for (code in codes) {
-                    when (op) {
-                        "join" -> join(fake, code)
-                        "advance" -> advance(fake, code)
-                        "break" -> breakStreak(fake, code)
-                        "win" -> win(fake, code)
-                        else -> Log.w(TAG, "Unknown op '$op' (join, advance, break, win)")
+                if (op == "present") {
+                    // One presentation on one room: the first the fake holds.
+                    present(fake, codes.first(), mode)
+                    Log.i(TAG, "op=present mode=$mode applied to ${codes.first()}; now bring the app to the foreground or open Challenges to sync")
+                } else {
+                    for (code in codes) {
+                        when (op) {
+                            "join" -> join(fake, code)
+                            "advance" -> advance(fake, code)
+                            "break" -> breakStreak(fake, code)
+                            "win" -> win(fake, code)
+                            else -> Log.w(TAG, "Unknown op '$op' (join, advance, break, win, present)")
+                        }
                     }
+                    Log.i(TAG, "op=$op applied to ${codes.size} room(s); now bring the app to the foreground or open Challenges to sync")
                 }
-                Log.i(TAG, "op=$op applied to ${codes.size} room(s); now bring the app to the foreground or open Challenges to sync")
             } catch (e: Exception) {
                 Log.e(TAG, "op=$op failed", e)
             } finally {
@@ -150,6 +185,68 @@ class DebugRoomReceiver : BroadcastReceiver() {
         Log.i(TAG, "$code: the bot won the race")
     }
 
+    /**
+     * The recipe for one presentation, see the class doc. Every mode starts with the bot joining,
+     * because none of the four can happen to a pilot who is alone in the room.
+     */
+    private suspend fun present(fake: FakeRoomApi, code: String, mode: String?) {
+        join(fake, code)
+        val room = fake.room(code) ?: return
+        val type = room.definition.type
+        when (mode) {
+            "team" -> {
+                if (type == ChallengeType.ROUTE) {
+                    Log.w(TAG, "$code: a race has no team completion; use mode=won or mode=placed")
+                    return
+                }
+                fillPool(fake, code)
+            }
+            "won" -> {
+                if (type != ChallengeType.ROUTE) {
+                    Log.w(TAG, "$code: not a race; share a route to win one")
+                    return
+                }
+                Log.i(TAG, "$code: the bot is in; fly the route yourself, your arrival wins the race")
+            }
+            "placed" -> win(fake, code)
+            "broken" -> breakStreak(fake, code)
+            else -> Log.w(TAG, "Unknown mode '$mode' (team, won, placed, broken)")
+        }
+    }
+
+    /**
+     * The bot advances until its own contribution alone reaches the pool's target, then claims
+     * the completion. Bounded, so a room whose target the steps cannot reach (a set with an
+     * unknown definition) logs instead of looping.
+     */
+    private suspend fun fillPool(fake: FakeRoomApi, code: String) {
+        repeat(MAX_FILL_STEPS) {
+            val room = fake.room(code) ?: return
+            val bot = botIn(room) ?: return
+            val definition = room.definition
+            val filled = when (definition.type) {
+                ChallengeType.DISTANCE -> bot.distanceKm >= (definition.targetDistanceKm ?: return)
+                ChallengeType.SET_COMPLETION -> {
+                    val members = definition.setCatalogId
+                        ?.let { CuratedChallengeSets.find(it) }
+                        ?.memberItems
+                        ?.map { it.id }
+                        ?: return
+                    bot.visitedMembers.containsAll(members)
+                }
+                ChallengeType.STREAK -> bot.streakDays >= (definition.targetDays ?: return)
+                ChallengeType.ROUTE -> return
+            }
+            if (filled) {
+                claimCompleted(fake, code, bot)
+                Log.i(TAG, "$code: the bot filled the pool and claimed the completion")
+                return
+            }
+            advance(fake, code)
+        }
+        Log.w(TAG, "$code: the pool did not fill in $MAX_FILL_STEPS steps")
+    }
+
     /** A completed claim goes through [FakeRoomApi.putSnapshot], the way a real second phone
      *  would send it, so the fake resolves the placements itself. The fake checks the caller
      *  against the snapshot, so the caller is the bot for exactly this one call. */
@@ -174,5 +271,6 @@ class DebugRoomReceiver : BroadcastReceiver() {
         const val TAG = "DebugRoomReceiver"
         const val BOT_CODE = "BOT001"
         const val BOT_NAME = "Bot Pilot"
+        const val MAX_FILL_STEPS = 200
     }
 }

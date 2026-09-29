@@ -135,8 +135,9 @@ internal fun ChallengeCompletionEntry(challenge: Challenge, entryNumber: Int) {
     }
 }
 
-/** "1ST" for a decided race, "CREW ×3" for a shared pool, null for a solo row. */
-private fun sharedStamp(challenge: Challenge): String? {
+/** "1ST" for a decided race, "CREW ×3" for a shared pool, null for a solo row. Internal so the
+ *  completion overlay's morph preview shows the same stamp the entry it lands as will wear. */
+internal fun sharedStamp(challenge: Challenge): String? {
     if (!challenge.isShared()) return null
     if (challenge.type == ChallengeType.ROUTE) {
         if (challenge.sharedOutcome !is SharedOutcome.Completed) return null
