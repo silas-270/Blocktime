@@ -43,7 +43,14 @@ ROOM_SERVER_TEST_URL=http://localhost:8080 ./gradlew :app:testDebugUnitTest --te
 
 ## Deploying
 
-The `Dockerfile` builds a release binary and runs it on a slim Debian image. On Railway: a
-service from this repository with root directory `backend`, a Postgres database whose
-`DATABASE_URL` is referenced by the service, `CLIENT_IP_HEADER=x-real-ip`, and a public domain.
-`/health` answers 204 when the database does, which makes a good health check.
+The `Dockerfile` builds a release binary and runs it on a slim Debian image; Railway picks it up
+on its own. The production server is the Railway project `blocktime`: a `Postgres` service and a
+`room-server` service with `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `CLIENT_IP_HEADER=x-real-ip`,
+the health check on `/health` and a public domain. Deploy from the repository root with
+
+```bash
+railway up backend --path-as-root --service room-server --detach -m "<what changed>"
+```
+
+and point the app's `ROOM_SERVER_URL` at the service's domain. Migrations run when the new
+instance starts, before it answers the health check, so a failed migration never takes traffic.
