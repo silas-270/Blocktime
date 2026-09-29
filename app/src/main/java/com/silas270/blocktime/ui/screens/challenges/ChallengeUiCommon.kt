@@ -4,9 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.silas270.blocktime.data.model.Challenge
-import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.isShared
-import com.silas270.blocktime.data.model.predefinedRoute
 import com.silas270.blocktime.data.model.progressFraction
 import com.silas270.blocktime.ui.components.ButtonSize
 import com.silas270.blocktime.ui.components.ModalButtonRow
@@ -14,7 +12,6 @@ import com.silas270.blocktime.ui.components.ModalTitle
 import com.silas270.blocktime.ui.components.PrimaryActionButton
 import com.silas270.blocktime.ui.components.ScrimCardModal
 import com.silas270.blocktime.ui.theme.Haze
-import com.silas270.blocktime.ui.viewmodel.challenges.formatKm
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,27 +26,8 @@ import androidx.compose.foundation.layout.Spacer
  * challenges can share them too.
  */
 
-/** "STR → PEK" / "3/7 visited" / "2,600 / 6,200 mi" / "2 of 4 days", by type. */
-internal fun challengeSubtitle(challenge: Challenge): String {
-    return when (challenge.type) {
-        // A predefined itinerary names the leg as well as its endpoints: on a circuit the endpoint
-        // pair alone can read as "LHR → LHR", which says nothing about how far along you are.
-        ChallengeType.ROUTE -> {
-            val hop = "${challenge.positionIata ?: "?"} → ${nextStop(challenge) ?: "?"}"
-            challenge.predefinedRoute()
-                ?.let { "$hop · leg ${challenge.legIndex + 1}/${it.legCount}" }
-                ?: hop
-        }
-        ChallengeType.SET_COMPLETION -> "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers} visited"
-        ChallengeType.DISTANCE -> {
-            val target = challenge.targetDistanceKm ?: 0.0
-            "${formatKm(challenge.cumulativeDistanceKm)} / ${formatKm(target)}"
-        }
-        // Days rather than a percentage: with a target of 3-5, "2 of 4 days" is both shorter and
-        // more actionable than "50%", and the streak reads as a count everywhere else too.
-        ChallengeType.STREAK -> "${challenge.streakDays} of ${challenge.targetDays ?: 0} days"
-    }
-}
+/** The one-line progress summary; see [challengeStatusText], which holds the wording. */
+internal fun challengeSubtitle(challenge: Challenge): String = challengeStatusText(challenge)
 
 /** "1st", "2nd", "3rd", "4th", "11th", "22nd": the suffix for a race placement. */
 internal fun ordinalSuffix(n: Int): String {
@@ -76,11 +54,6 @@ internal fun syncedAgoLabel(syncedAt: Long, now: Long): String {
         else -> "Synced ${minutes / 60L} h ago"
     }
 }
-
-/** Where the challenge's next flight is headed - the itinerary's next waypoint for a predefined
- *  route, the final destination for a free-form one (which is free to get there any way it likes). */
-private fun nextStop(challenge: Challenge): String? =
-    challenge.predefinedRoute()?.destOf(challenge.legIndex) ?: challenge.destIata
 
 /**
  * Shown before a Free Mode flight, since the flight looks exactly like a Story Mode one from the

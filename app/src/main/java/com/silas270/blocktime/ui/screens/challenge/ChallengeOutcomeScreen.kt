@@ -57,12 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
 import com.silas270.blocktime.data.model.Challenge
-import com.silas270.blocktime.data.model.ChallengeType
-import com.silas270.blocktime.data.model.predefinedRoute
+import com.silas270.blocktime.ui.screens.challenges.challengeOutcomeText
 import com.silas270.blocktime.data.repository.ChallengeOutcome
-import com.silas270.blocktime.util.formatMiles
-import com.silas270.blocktime.util.kmToMiles
-import java.util.Locale
 import com.silas270.blocktime.ui.components.BadgeSize
 import com.silas270.blocktime.ui.components.BadgeStyle
 import com.silas270.blocktime.ui.components.BadgeVariant
@@ -316,27 +312,9 @@ private fun ChallengeOutcomeRow(outcome: ChallengeOutcome, animateIn: Boolean, p
     }
 }
 
-/**
- * The challenge's progress in its own units, from its row as it stands after this landing -
- * legs for an itinerary, members for a set, miles for distance, days for a streak. Null where
- * there is no count more meaningful than the percentage (a free-form route, scored by distance
- * closed along a straight line).
- */
-private fun outcomeProgressLabel(challenge: Challenge): String? = when (challenge.type) {
-    ChallengeType.ROUTE -> challenge.predefinedRoute()
-        ?.takeIf { it.legCount > 0 }
-        ?.let { "Leg ${challenge.legIndex.coerceIn(0, it.legCount)}/${it.legCount}" }
-    ChallengeType.SET_COMPLETION ->
-        challenge.setTotalMembers.takeIf { it > 0 }
-            ?.let { "${challenge.visitedSetMembers.size}/$it visited" }
-    ChallengeType.DISTANCE -> challenge.targetDistanceKm?.takeIf { it > 0 }?.let { target ->
-        // Bare numbers on the left so the unit is said once: "2,600 / 6,200 mi".
-        val flown = String.format(Locale.US, "%,.0f", kmToMiles(challenge.cumulativeDistanceKm.coerceAtMost(target)))
-        "$flown / ${formatMiles(target)}"
-    }
-    ChallengeType.STREAK -> challenge.targetDays?.takeIf { it > 0 }
-        ?.let { "${challenge.streakDays.coerceAtMost(it)} of $it days" }
-}
+/** The challenge's progress in its own units, or null for the bare percentage; see
+ *  [challengeOutcomeText], which holds the wording (a shared pool reads the team's count). */
+private fun outcomeProgressLabel(challenge: Challenge): String? = challengeOutcomeText(challenge)
 
 private data class ConfettiParticle(
     val startXFraction: Float,
