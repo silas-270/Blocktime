@@ -42,7 +42,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.displayProgressFraction
 import com.silas270.blocktime.ui.components.RingProgress
 import com.silas270.blocktime.ui.components.challengeTypeLabel
 import com.silas270.blocktime.ui.components.icon
@@ -206,10 +208,14 @@ internal fun CelebrationCard(
     if (alpha <= 0.001f) return
 
     val density = LocalDensity.current
-    val slotLabelText = if (challenge.type == ChallengeType.SET_COMPLETION) {
-        "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
-    } else {
-        "100%"
+    // A failed streak lifts out of its slot as the slot drew it: a Haze ring at the progress it
+    // reached, under "BROKEN" (ChallengeSlotRow), not as a full ring it never earned.
+    val failed = challenge.status == ChallengeStatus.FAILED
+    val slotLabelText = when {
+        failed -> "BROKEN"
+        challenge.type == ChallengeType.SET_COMPLETION ->
+            "${challenge.visitedSetMembers.size}/${challenge.setTotalMembers}"
+        else -> "100%"
     }
 
     val dateStr = remember(challenge.completedAt, challenge.startedAt) {
@@ -257,14 +263,14 @@ internal fun CelebrationCard(
                         .fillMaxSize()
                         .padding(Spacing.Large * scale)
                 )
-                // Full circular progress ring in accent Amber - matches FilledSlot's Spacing.Small (8.dp) and 5.dp stroke
+                // Progress ring, full and Amber for a completion - matches FilledSlot's Spacing.Small (8.dp) and 5.dp stroke
                 RingProgress(
-                    progress = 1f,
+                    progress = if (failed) challenge.displayProgressFraction() else 1f,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(Spacing.Small * scale),
                     strokeWidth = 5.dp * scale,
-                    fillColor = Amber
+                    fillColor = if (failed) Haze else Amber
                 ) {
                     val baseFontSize = when {
                         slotLabelText.length <= 3 -> 15f
