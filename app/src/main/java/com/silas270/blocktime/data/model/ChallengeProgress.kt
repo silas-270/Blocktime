@@ -135,10 +135,12 @@ fun Challenge.withSetDefinitionResolved(): Challenge {
 }
 
 /**
- * Resolves the member checklist for a Set Completion challenge.
+ * Resolves the member checklist for a Set Completion challenge, ticking the members in [visited]:
+ * the pilot's own by default, the crew's union ([teamVisitedMembers]) for a shared pool, so the
+ * checklist agrees with the "2/6 visited" beside it.
  * Returns null if the challenge is not a Set Completion challenge or its set definition is unknown.
  */
-fun Challenge.resolveSetMemberProgress(): List<SetMemberProgress>? {
+fun Challenge.resolveSetMemberProgress(visited: Set<String> = visitedSetMembers): List<SetMemberProgress>? {
     if (type != ChallengeType.SET_COMPLETION) return null
     val definition = setCatalogId?.let { CuratedChallengeSets.find(it) } ?: return null
     return definition.memberItems
@@ -146,7 +148,7 @@ fun Challenge.resolveSetMemberProgress(): List<SetMemberProgress>? {
             SetMemberProgress(
                 id = member.id,
                 displayName = member.displayName,
-                isVisited = visitedSetMembers.contains(member.id)
+                isVisited = visited.contains(member.id)
             )
         }
         .visitedFirst()

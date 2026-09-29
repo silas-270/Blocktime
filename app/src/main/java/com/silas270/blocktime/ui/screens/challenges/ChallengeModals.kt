@@ -84,6 +84,7 @@ import com.silas270.blocktime.data.model.progressSegments
 import com.silas270.blocktime.data.model.raceRivals
 import com.silas270.blocktime.data.model.racePlacement
 import com.silas270.blocktime.data.model.resolveSetMemberProgress
+import com.silas270.blocktime.data.model.teamVisitedMembers
 import com.silas270.blocktime.data.model.CuratedChallengeCatalog
 import com.silas270.blocktime.data.model.progressFraction
 import com.silas270.blocktime.data.repository.JoinResult
@@ -1008,7 +1009,8 @@ internal fun ChallengeInfoModal(
             FocusInfoRow(label = "STATUS", value = route)
         }
 
-        val setMembers = challenge.resolveSetMemberProgress()
+        // A shared pool ticks what the whole crew has visited, as its progress line counts it.
+        val setMembers = challenge.resolveSetMemberProgress(challenge.teamVisitedMembers())
         if (!setMembers.isNullOrEmpty()) {
             Spacer(modifier = Modifier.height(Spacing.Medium))
             SetMemberChecklist(members = setMembers)

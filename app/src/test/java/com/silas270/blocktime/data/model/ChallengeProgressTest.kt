@@ -314,6 +314,22 @@ class ChallengeProgressTest {
     }
 
     @Test
+    fun `resolveSetMemberProgress ticks the members it is given, such as a crew's union`() {
+        val continents = Challenge(
+            userId = 1,
+            type = ChallengeType.SET_COMPLETION,
+            source = ChallengeSource.CURATED,
+            name = "All Continents",
+            setCatalogId = "all_continents",
+            setMemberKind = SetMemberKind.CONTINENT,
+            setTotalMembers = 6,
+            visitedSetMembers = emptySet()
+        )
+        val progress = continents.resolveSetMemberProgress(setOf("EU", "AS"))!!
+        assertEquals(setOf("EU", "AS"), progress.filter { it.isVisited }.map { it.id }.toSet())
+    }
+
+    @Test
     fun `resolveSetMemberProgress marks visited members correctly for all continents`() {
         val continents = Challenge(
             userId = 1,
