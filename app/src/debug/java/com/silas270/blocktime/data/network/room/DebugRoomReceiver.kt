@@ -23,13 +23,15 @@ import java.time.LocalDate
  * change at its next sync moment, so after each broadcast bring the app to the foreground or
  * open Challenges, and the real merge, presentation and log paths run on the result.
  *
- * Every op applies to every room the fake holds. `op` is a string extra:
+ * Every op applies to every room the fake holds. `op` is a string extra. The `-p` is required:
+ * since Android 8 an implicit broadcast never reaches a manifest-declared receiver, so without it
+ * the broadcast completes and nothing happens.
  *
  * ```
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op join      # the bot joins
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op advance   # one step per type
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op break     # the bot's streak dies
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op win       # the bot wins a race
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op join      # the bot joins
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op advance   # one step per type
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op break     # the bot's streak dies
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op win       # the bot wins a race
  * ```
  *
  * `advance` moves the bot one step by the room's type: 500 km for a distance pool, the next
@@ -42,10 +44,10 @@ import java.time.LocalDate
  * after the other. It takes a second extra, `mode`:
  *
  * ```
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode team
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode won
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode placed
- * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode broken
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op present --es mode team
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op present --es mode won
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op present --es mode placed
+ * adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op present --es mode broken
  * ```
  *
  * - `team` (a distance, set or streak room): the bot joins if it has not, advances until its own

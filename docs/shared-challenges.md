@@ -560,14 +560,16 @@ adb shell am force-stop com.silas270.blocktime
 
 Shared rows the app still holds then read "Room closed" after the next sync. The release
 `attach` is a no-op. The receiver's KDoc is the manual
-checklist; the lines are:
+checklist; the lines are below. Keep `-p com.silas270.blocktime`: since Android 8 an implicit
+broadcast never reaches a receiver declared in the manifest, so without it the broadcast
+completes and the bot silently does nothing.
 
 ```
-adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op join      # the bot joins every room
-adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op advance   # one step per type
-adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op break     # the bot's streak dies
-adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op win       # the bot wins a race
-adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM --es op present --es mode team|won|placed|broken
+adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op join      # the bot joins every room
+adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op advance   # one step per type
+adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op break     # the bot's streak dies
+adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op win       # the bot wins a race
+adb shell am broadcast -a com.silas270.blocktime.DEBUG_ROOM -p com.silas270.blocktime --es op present --es mode team|won|placed|broken
 ```
 
 `advance` moves the bot one step by the room's type (500 km, the next unvisited member, one more
