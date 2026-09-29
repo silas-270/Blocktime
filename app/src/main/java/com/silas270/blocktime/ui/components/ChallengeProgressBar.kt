@@ -1,5 +1,6 @@
 package com.silas270.blocktime.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -10,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -82,4 +84,39 @@ fun ChallengeProgressBar(
                 )
             }
     )
+}
+
+/** A pilot other than the viewer on a race's bar or ring: where they are, in their colour. */
+data class ProgressMarker(val fraction: Float, val color: Color)
+
+/**
+ * A race's bar (docs/shared-challenges.md "Per type"): the pilot's own progress as the usual
+ * fill, every other pilot as a dot in their colour on the track at their progress. A race has
+ * no shared total to slice, so the crew shows as positions instead of shares. A dot is exactly as
+ * tall as the bar, so it reads as part of it and never sticks out.
+ */
+@Composable
+fun MarkedProgressBar(
+    progress: Float,
+    markers: List<ProgressMarker>,
+    modifier: Modifier = Modifier,
+    trackColor: Color = Slate,
+    fillColor: Color = Amber,
+    height: Dp = 8.dp
+) {
+    Box(modifier = modifier.fillMaxWidth().height(height)) {
+        ChallengeProgressBar(
+            progress = progress,
+            trackColor = trackColor,
+            fillColor = fillColor,
+            height = height
+        )
+        Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
+            val radius = size.height / 2f
+            markers.forEach { marker ->
+                val x = (marker.fraction.coerceIn(0f, 1f) * size.width).coerceIn(radius, size.width - radius)
+                drawCircle(color = marker.color, radius = radius, center = Offset(x, radius))
+            }
+        }
+    }
 }
