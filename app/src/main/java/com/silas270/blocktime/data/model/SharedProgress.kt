@@ -52,6 +52,15 @@ fun Challenge.contributors(): List<ParticipantSnapshot> {
 }
 
 /**
+ * How many pilots the row is shared with, self included and leavers excluded: the "CREW ×N" of
+ * a team presentation and the outcome row. Counted from [others] plus one rather than from
+ * [crew], so it is right even before the cache holds the pilot's own snapshot (a room seen
+ * before the first upload landed). 1 for a solo row, and 1 for a shared row whose room was
+ * never seen, which the screens read as "crew unknown".
+ */
+fun Challenge.crewSize(): Int = if (isShared()) others().size + 1 else 1
+
+/**
  * The union of every participant's visited members, over the current definition.
  *
  * Self is read through [withSetDefinitionResolved], so a member the definition no longer has is

@@ -3,7 +3,9 @@ package com.silas270.blocktime.data.repository
 import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
-import com.silas270.blocktime.data.model.progressFraction
+import com.silas270.blocktime.data.model.crewSize
+import com.silas270.blocktime.data.model.displayProgressFraction
+import com.silas270.blocktime.data.model.isShared
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,13 +47,21 @@ sealed class LandingResult {
  * One challenge's change from a single landing - either it advanced (challenges.md's "Per-leg
  * progress feedback") but didn't reach 100%, or it completed (challenges.md's "Completion
  * presentation"). [oldProgress]/[newProgress] are 0f..1f, per
- * [com.silas270.blocktime.data.model.progressFraction].
+ * [com.silas270.blocktime.data.model.displayProgressFraction]: the team's progress for a shared
+ * pool, the pilot's own otherwise.
+ *
+ * [isShared] and [crewSize] let the outcome row show "CREW ×N" next to a team bar
+ * (docs/shared-challenges.md "Landing"). They sit after [iconName] with defaults so every
+ * existing construction, positional or named, keeps compiling and means "solo".
  */
 sealed interface ChallengeOutcome {
     val challengeId: Int
     val name: String
     val type: ChallengeType
     val iconName: String?
+    val isShared: Boolean
+    /** Pilots in the room, self included and leavers excluded; 1 when not shared. */
+    val crewSize: Int
 
     data class Advanced(
         override val challengeId: Int,
@@ -59,7 +69,9 @@ sealed interface ChallengeOutcome {
         override val type: ChallengeType,
         val oldProgress: Float,
         val newProgress: Float,
-        override val iconName: String? = null
+        override val iconName: String? = null,
+        override val isShared: Boolean = false,
+        override val crewSize: Int = 1
     ) : ChallengeOutcome
 
     data class Completed(
@@ -67,7 +79,9 @@ sealed interface ChallengeOutcome {
         override val name: String,
         override val type: ChallengeType,
         val oldProgress: Float,
-        override val iconName: String? = null
+        override val iconName: String? = null,
+        override val isShared: Boolean = false,
+        override val crewSize: Int = 1
     ) : ChallengeOutcome
 }
 
@@ -95,16 +109,29 @@ fun resolveLandingOutcome(before: List<Challenge>, after: List<Challenge>): Land
 
     for (old in before) {
         val new = afterById[old.id] ?: continue
-        val oldProgress = old.progressFraction()
+        val oldProgress = old.displayProgressFraction()
 
-        if (old.status == ChallengeStatus.ACTIVE && new.status == ChallengeStatus.COMPLETED) {
-            outcomes += ChallengeOutcome.Completed(new.id, new.name, new.type, oldProgress, new.iconName)
+        if (old.status == ChallengeStatus.ACTIVE && new.status != ChallengeStatus.ACTIVE) {
+            // A row that went terminal counts as completed by this landing only when the
+            // outcome is absent or the pilot's own. A sync is allowed to run mid-flight, so a
+            // foreign completion (or a group streak breaking) can land between the before and
+            // after reads; that is not what this landing did, and the outcome screen only ever
+            // shows what the pilot's own landing did (docs/shared-challenges.md "Landing", L8).
+            // Such a row is presented on Challenges like every other foreign outcome.
+            val outcome = new.sharedOutcome
+            if (new.status == ChallengeStatus.COMPLETED && (outcome == null || outcome.bySelf)) {
+                outcomes += ChallengeOutcome.Completed(
+                    new.id, new.name, new.type, oldProgress, new.iconName, new.isShared(), new.crewSize()
+                )
+            }
             continue
         }
 
-        val newProgress = new.progressFraction()
+        val newProgress = new.displayProgressFraction()
         if (newProgress != oldProgress) {
-            outcomes += ChallengeOutcome.Advanced(new.id, new.name, new.type, oldProgress, newProgress, new.iconName)
+            outcomes += ChallengeOutcome.Advanced(
+                new.id, new.name, new.type, oldProgress, newProgress, new.iconName, new.isShared(), new.crewSize()
+            )
         }
     }
 

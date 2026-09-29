@@ -4,8 +4,14 @@ import com.silas270.blocktime.data.model.Challenge
 import com.silas270.blocktime.data.model.ChallengeSource
 import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
+import com.silas270.blocktime.data.model.ParticipantSnapshot
+import com.silas270.blocktime.data.model.RoomDefinition
+import com.silas270.blocktime.data.model.RoomState
+import com.silas270.blocktime.data.model.RoomStateCache
+import com.silas270.blocktime.data.model.SharedOutcome
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -202,6 +208,86 @@ class LandingResultTest {
         val after = listOf(distanceChallenge(2, 1000.0)) // challenge 1 is gone
 
         assertEquals(LandingResult.None, resolveLandingOutcome(before, after))
+    }
+
+    // ── Shared rows (docs/shared-challenges.md "Landing") ─────────────────────────────────
+
+    private fun sharedCache(type: ChallengeType, vararg others: ParticipantSnapshot) = RoomStateCache(
+        selfCode = "SELF01",
+        room = RoomState(
+            code = "ROOM01",
+            definition = RoomDefinition(type = type, source = ChallengeSource.CUSTOM, name = "Shared"),
+            participants = listOf(ParticipantSnapshot(userCode = "SELF01", username = "me", colorIndex = 0)) + others,
+        ),
+    )
+
+    private fun sharedDistance(id: Int, cumulativeKm: Double, status: ChallengeStatus = ChallengeStatus.ACTIVE, outcome: SharedOutcome? = null) =
+        distanceChallenge(id, cumulativeKm, targetKm = 1000.0, status = status).copy(
+            roomCode = "ROOM01",
+            roomState = sharedCache(
+                ChallengeType.DISTANCE,
+                ParticipantSnapshot(userCode = "ANNA01", username = "anna", colorIndex = 1, distanceKm = 400.0),
+                ParticipantSnapshot(userCode = "BOB001", username = "bob", colorIndex = 2, left = true, distanceKm = 100.0),
+            ),
+            sharedOutcome = outcome,
+        )
+
+    @Test
+    fun `L8 a foreign completion between before and after is not my outcome`() {
+        val before = listOf(sharedDistance(1, 100.0))
+        val after = listOf(
+            sharedDistance(1, 100.0, status = ChallengeStatus.COMPLETED, outcome = SharedOutcome.Completed(byUserCode = "ANNA01", bySelf = false, at = 5L))
+        )
+
+        assertEquals(LandingResult.None, resolveLandingOutcome(before, after))
+    }
+
+    @Test
+    fun `a failed row produces no outcome`() {
+        val before = listOf(streakChallenge(1, streakDays = 2).copy(roomCode = "ROOM01"))
+        val after = listOf(
+            streakChallenge(1, streakDays = 2, status = ChallengeStatus.FAILED).copy(
+                roomCode = "ROOM01",
+                sharedOutcome = SharedOutcome.Failed(brokenByUserCode = "SELF01", bySelf = true, at = 5L),
+            )
+        )
+
+        assertEquals(LandingResult.None, resolveLandingOutcome(before, after))
+    }
+
+    @Test
+    fun `shared pool outcomes carry team progress and crew size`() {
+        // Own 100 + Anna 400 + the leaver's 100 = 600 of 1000 before; own 300 after.
+        val before = listOf(sharedDistance(1, 100.0), sharedDistance(2, 100.0))
+        val after = listOf(
+            sharedDistance(1, 300.0),
+            sharedDistance(2, 500.0, status = ChallengeStatus.COMPLETED, outcome = SharedOutcome.Completed(byUserCode = "SELF01", bySelf = true, at = 5L)),
+        )
+
+        val outcomes = (resolveLandingOutcome(before, after) as LandingResult.ChallengesAffected).outcomes
+        assertEquals(2, outcomes.size)
+
+        val advanced = outcomes[0] as ChallengeOutcome.Advanced
+        assertEquals(0.6f, advanced.oldProgress, 0.0001f)
+        assertEquals(0.8f, advanced.newProgress, 0.0001f)
+        assertTrue(advanced.isShared)
+        // Self and Anna; Bob left.
+        assertEquals(2, advanced.crewSize)
+
+        val completed = outcomes[1] as ChallengeOutcome.Completed
+        assertEquals(0.6f, completed.oldProgress, 0.0001f)
+        assertTrue(completed.isShared)
+        assertEquals(2, completed.crewSize)
+    }
+
+    @Test
+    fun `solo outcomes are not shared and have a crew of one`() {
+        val before = listOf(distanceChallenge(1, 1000.0))
+        val after = listOf(distanceChallenge(1, 3000.0))
+
+        val outcome = (resolveLandingOutcome(before, after) as LandingResult.ChallengesAffected).outcomes.single()
+        assertFalse(outcome.isShared)
+        assertEquals(1, outcome.crewSize)
     }
 
     @Test
