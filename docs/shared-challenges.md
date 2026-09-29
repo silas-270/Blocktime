@@ -346,11 +346,14 @@ choose what it says, from the row alone:
 | Solo | not shared | as today |
 | Team | shared pool, completed by anyone | "CREW ×N" badge above the card, full confetti |
 | Race won | shared route, no foreign completion on the row | "YOU WON THE RACE" in gold, "CREW ×N" |
-| Race placed | shared route, `Completed` by someone else | "ANNA WON · YOU FINISHED 2ND", half the confetti in cooler colours, button "GG" |
+| Race placed | shared route, `Completed` by someone else | "ANNA WON" over "YOU FINISHED 2ND", "CREW ×N", half the confetti in cooler colours, button "GG" |
 | Broken | shared streak, `FAILED` | the shatter, below |
 
 A placed pilot whose code the placements do not list (joined after the finish, an older server)
-is shown second, and a winner the cache has no name for is named by code.
+is shown second, and a winner the cache has no name for is named by code. Every caption sits on
+its own dark pill above the card, because the tab labels show through the scrim exactly there,
+and each headline line is one line: the placed headline is two deliberate lines rather than one
+that wraps wherever the name is long enough. A solo completion draws no caption at all.
 
 **The shatter** (`ChallengeFailureOverlay`) shares the opening beat with the celebration
 (`ChallengePresentationSupport`: 325 ms before the first card, 200 ms before each further one,

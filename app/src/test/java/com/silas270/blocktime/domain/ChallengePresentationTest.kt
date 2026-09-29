@@ -144,7 +144,7 @@ class ChallengePresentationTest {
         val cache = cache(ChallengeType.ROUTE, snapshot(SELF, 0), snapshot(ANNA, 1, username = "Anna"), snapshot(BOB, 2))
         val outcome = SharedOutcome.Completed(byUserCode = ANNA, bySelf = false, at = 1L, placements = listOf(ANNA, BOB, SELF))
 
-        assertEquals(CompletionPresentation.RacePlaced(place = 3, winnerName = "Anna"), presentationFor(route(cache = cache, outcome = outcome)))
+        assertEquals(CompletionPresentation.RacePlaced(place = 3, winnerName = "Anna", crewSize = 3), presentationFor(route(cache = cache, outcome = outcome)))
     }
 
     @Test
@@ -153,7 +153,8 @@ class ChallengePresentationTest {
         // rank to derive either.
         val outcome = SharedOutcome.Completed(byUserCode = ANNA, bySelf = false, at = 1L)
 
-        assertEquals(CompletionPresentation.RacePlaced(place = 2, winnerName = ANNA), presentationFor(route(outcome = outcome)))
+        // Without a cache the crew is unknown, which counts as one, as for a pool.
+        assertEquals(CompletionPresentation.RacePlaced(place = 2, winnerName = ANNA, crewSize = 1), presentationFor(route(outcome = outcome)))
     }
 
     @Test
@@ -167,7 +168,7 @@ class ChallengePresentationTest {
         val outcome = SharedOutcome.Completed(byUserCode = ANNA, bySelf = false, at = 1L)
 
         assertEquals(
-            CompletionPresentation.RacePlaced(place = 3, winnerName = "Anna"),
+            CompletionPresentation.RacePlaced(place = 3, winnerName = "Anna", crewSize = 3),
             presentationFor(route(cache = cache, outcome = outcome, ownProgress = 0.5f)),
         )
     }
@@ -177,7 +178,7 @@ class ChallengePresentationTest {
         val cache = cache(ChallengeType.ROUTE, snapshot(SELF, 0), snapshot(ANNA, 1, username = ""))
         val outcome = SharedOutcome.Completed(byUserCode = ANNA, bySelf = false, at = 1L, placements = listOf(ANNA, SELF))
 
-        assertEquals(CompletionPresentation.RacePlaced(place = 2, winnerName = ANNA), presentationFor(route(cache = cache, outcome = outcome)))
+        assertEquals(CompletionPresentation.RacePlaced(place = 2, winnerName = ANNA, crewSize = 2), presentationFor(route(cache = cache, outcome = outcome)))
     }
 
     // ── Failure ───────────────────────────────────────────────────────────────────────────

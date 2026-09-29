@@ -24,8 +24,9 @@ sealed interface CompletionPresentation {
     /** A shared race the pilot won: "YOU WON THE RACE", gold. */
     data class RaceWon(val crewSize: Int) : CompletionPresentation
 
-    /** A shared race someone else won: "ANNA WON · YOU FINISHED 2ND", subdued. */
-    data class RacePlaced(val place: Int, val winnerName: String) : CompletionPresentation
+    /** A shared race someone else won: "ANNA WON" over "YOU FINISHED 2ND", the "CREW ×N" badge,
+     *  subdued. */
+    data class RacePlaced(val place: Int, val winnerName: String, val crewSize: Int) : CompletionPresentation
 }
 
 /** What the failure overlay says for a failed row. Only a shared streak can fail. */
@@ -57,6 +58,7 @@ fun presentationFor(challenge: Challenge): CompletionPresentation? {
             // still did not win, so second is the least wrong place to show.
             place = challenge.racePlacement() ?: 2,
             winnerName = challenge.nameOf(outcome.byUserCode),
+            crewSize = challenge.crewSize(),
         )
     } else {
         CompletionPresentation.RaceWon(challenge.crewSize())

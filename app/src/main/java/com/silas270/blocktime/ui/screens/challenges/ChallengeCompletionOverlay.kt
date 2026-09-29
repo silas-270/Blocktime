@@ -83,7 +83,8 @@ private enum class CelebrationPhase {
  * [presentation] (docs/shared-challenges.md "Presentation") changes only what the settled card
  * says: a solo completion is as it always was; a shared pool wears a "CREW ×N" badge above the
  * card; a won race adds "YOU WON THE RACE" in gold; a lost race names the winner and the pilot's
- * place, fires half the confetti in cooler colours and closes on "GG" instead of "CONGRATS".
+ * place over the badge, fires half the confetti in cooler colours and closes on "GG" instead of
+ * "CONGRATS".
  */
 @Composable
 internal fun ChallengeCompletionOverlay(
@@ -395,9 +396,9 @@ internal fun ChallengeCompletionOverlay(
 
         // A solo completion has no caption; a shared one says what happened, in the same fade
         // as the button so nothing appears before the card has settled.
-        if (copy.headline != null || copy.crewBadge != null) {
+        if (copy.headlines.isNotEmpty() || copy.crewBadge != null) {
             PresentationCaption(cardRect = animatedRect, gapPx = buttonGapPx, alpha = animatedButtonAlpha) {
-                copy.headline?.let { headline ->
+                copy.headlines.forEach { headline ->
                     PresentationHeadline(text = headline, color = copy.headlineColor)
                 }
                 copy.crewBadge?.let { badge ->
@@ -456,10 +457,11 @@ internal fun ChallengeCompletionOverlay(
 
 /**
  * Everything a [CompletionPresentation] changes about the overlay, resolved once per card: the
- * headline and badge above it, the button's label, and how much confetti in which colours.
+ * headline lines and badge above it, the button's label, and how much confetti in which colours.
+ * [headlines] is empty for no headline; each entry is drawn as one line that never wraps.
  */
 private class CelebrationCopy(
-    val headline: String?,
+    val headlines: List<String>,
     val headlineColor: Color,
     val crewBadge: String?,
     val buttonLabel: String,
@@ -469,7 +471,7 @@ private class CelebrationCopy(
     companion object {
         fun of(presentation: CompletionPresentation): CelebrationCopy = when (presentation) {
             CompletionPresentation.Solo -> CelebrationCopy(
-                headline = null,
+                headlines = emptyList(),
                 headlineColor = OffWhite,
                 crewBadge = null,
                 buttonLabel = "CONGRATS",
@@ -477,7 +479,7 @@ private class CelebrationCopy(
                 confettiColors = ConfettiColors
             )
             is CompletionPresentation.Team -> CelebrationCopy(
-                headline = null,
+                headlines = emptyList(),
                 headlineColor = OffWhite,
                 crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "CONGRATS",
@@ -485,18 +487,22 @@ private class CelebrationCopy(
                 confettiColors = ConfettiColors
             )
             is CompletionPresentation.RaceWon -> CelebrationCopy(
-                headline = "YOU WON THE RACE",
+                headlines = listOf("YOU WON THE RACE"),
                 headlineColor = ChallengeGold,
                 crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "CONGRATS",
                 confettiCount = ConfettiParticleCount,
                 confettiColors = ConfettiColors
             )
+            // Two lines on purpose: as one, the winner's name pushed the placement onto a
+            // second line at an arbitrary word, and the ellipsis then belongs to the name alone.
             is CompletionPresentation.RacePlaced -> CelebrationCopy(
-                headline = "${presentation.winnerName.uppercase(Locale.US)} WON · YOU FINISHED " +
-                    "${presentation.place}${ordinalSuffix(presentation.place).uppercase(Locale.US)}",
+                headlines = listOf(
+                    "${presentation.winnerName.uppercase(Locale.US)} WON",
+                    "YOU FINISHED ${presentation.place}${ordinalSuffix(presentation.place).uppercase(Locale.US)}",
+                ),
                 headlineColor = OffWhite,
-                crewBadge = null,
+                crewBadge = "CREW ×${presentation.crewSize}",
                 buttonLabel = "GG",
                 confettiCount = ConfettiParticleCount / 2,
                 confettiColors = PlacedConfettiColors

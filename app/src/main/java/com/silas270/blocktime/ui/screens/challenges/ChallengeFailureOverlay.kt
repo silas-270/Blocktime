@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.silas270.blocktime.data.model.Challenge
@@ -335,6 +336,8 @@ internal fun ChallengeFailureOverlay(
             label = "damn_button_alpha"
         )
 
+        // One line each, like the celebration's headline: the pill is sized for the copy, not
+        // for a name long enough to wrap, which is cut short instead.
         PresentationCaption(cardRect = animatedRect, gapPx = geometry.buttonGapPx, alpha = animatedPresentedAlpha) {
             PresentationHeadline(text = "STREAK BROKEN", color = Danger)
             Text(
@@ -342,7 +345,8 @@ internal fun ChallengeFailureOverlay(
                 style = MaterialTheme.typography.bodyMedium,
                 color = OffWhite,
                 textAlign = TextAlign.Center,
-                maxLines = 2
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 

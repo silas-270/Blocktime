@@ -56,6 +56,7 @@ import com.silas270.blocktime.ui.theme.LogbookInkDark
 import com.silas270.blocktime.ui.theme.LogbookInkFaint
 import com.silas270.blocktime.ui.theme.LogbookMarginRed
 import com.silas270.blocktime.ui.theme.LogbookParchment
+import com.silas270.blocktime.ui.theme.Midnight
 import com.silas270.blocktime.ui.theme.OffWhite
 import com.silas270.blocktime.ui.theme.Spacing
 import java.text.SimpleDateFormat
@@ -77,7 +78,8 @@ internal const val FlyInDurationMs = 460
 /** The fade of everything that appears once the card has settled: the button, a caption. */
 internal const val PresentedFadeDurationMs = 240
 private const val CardSizeDp = 220
-private const val CaptionHeightDp = 96
+/** Room for the caption's pill at its tallest: two headline lines, a badge and its padding. */
+private const val CaptionHeightDp = 128
 
 /** The flight's easing: a fast lift-off with a long, soft settle at centre stage. */
 internal val FlyInEasing: CubicBezierEasing = CubicBezierEasing(0.05f, 0.85f, 0.15f, 1f)
@@ -382,7 +384,11 @@ private fun LogStampPreview(text: String) {
 
 /**
  * The caption above a presented card: a column of [content] bottom-aligned to [gapPx] above
- * [cardRect], as wide as the card, faded by [alpha]. Draws nothing while fully transparent.
+ * [cardRect], no wider than the card, faded by [alpha]. Draws nothing while fully transparent.
+ *
+ * The column sits on its own pill, because the scrim under it is only 70 to 80% opaque and the
+ * tab labels ("CHALLENGES | ACHIEVEMENTS") show through exactly where the caption lands; text
+ * over text was unreadable in both themes.
  */
 @Composable
 internal fun PresentationCaption(
@@ -402,6 +408,9 @@ internal fun PresentationCaption(
         contentAlignment = Alignment.BottomCenter
     ) {
         Column(
+            modifier = Modifier
+                .background(Midnight.copy(alpha = 0.92f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
             content = content
@@ -409,7 +418,11 @@ internal fun PresentationCaption(
     }
 }
 
-/** The monospace headline of a caption: "YOU WON THE RACE", "STREAK BROKEN". */
+/**
+ * One line of a caption's monospace headline: "YOU WON THE RACE", "STREAK BROKEN". Never wraps:
+ * a headline that needs two lines is passed as two of these, so each line breaks where the copy
+ * says and not where the card's width happens to.
+ */
 @Composable
 internal fun PresentationHeadline(text: String, color: Color) {
     Text(
@@ -421,7 +434,8 @@ internal fun PresentationHeadline(text: String, color: Color) {
         ),
         color = color,
         textAlign = TextAlign.Center,
-        maxLines = 2
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
     )
 }
 
