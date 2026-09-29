@@ -197,46 +197,56 @@ internal fun ChallengePickerModal(
 
         when (val current = step) {
             PickerStep.TypeGrid -> {
-                ModalTitle("START A CHALLENGE")
-                Spacer(modifier = Modifier.height(Spacing.Small))
-                Text(
-                    text = "Select a challenge type to explore:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Haze
-                )
-                Spacer(modifier = Modifier.height(Spacing.Medium))
+                // The card shrinks to the space above the keyboard (ScrimCardModal's imePadding),
+                // and with the code field focused the grid no longer fits there. The grid scrolls
+                // in whatever height is left, so the field and LOOK UP below it stay in view.
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ModalTitle("START A CHALLENGE")
+                    Spacer(modifier = Modifier.height(Spacing.Small))
+                    Text(
+                        text = "Select a challenge type to explore:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Haze
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.Medium))
 
-                // 2x2 Grid of Challenge Types
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ChallengeTypeCard(
-                            type = ChallengeType.ROUTE,
-                            modifier = Modifier.weight(1f),
-                            onClick = { step = PickerStep.CuratedList(ChallengeType.ROUTE) }
-                        )
-                        ChallengeTypeCard(
-                            type = ChallengeType.SET_COMPLETION,
-                            modifier = Modifier.weight(1f),
-                            onClick = { step = PickerStep.CuratedList(ChallengeType.SET_COMPLETION) }
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ChallengeTypeCard(
-                            type = ChallengeType.DISTANCE,
-                            modifier = Modifier.weight(1f),
-                            onClick = { step = PickerStep.CuratedList(ChallengeType.DISTANCE) }
-                        )
-                        ChallengeTypeCard(
-                            type = ChallengeType.STREAK,
-                            modifier = Modifier.weight(1f),
-                            onClick = { step = PickerStep.CuratedList(ChallengeType.STREAK) }
-                        )
+                    // 2x2 Grid of Challenge Types
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ChallengeTypeCard(
+                                type = ChallengeType.ROUTE,
+                                modifier = Modifier.weight(1f),
+                                onClick = { step = PickerStep.CuratedList(ChallengeType.ROUTE) }
+                            )
+                            ChallengeTypeCard(
+                                type = ChallengeType.SET_COMPLETION,
+                                modifier = Modifier.weight(1f),
+                                onClick = { step = PickerStep.CuratedList(ChallengeType.SET_COMPLETION) }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ChallengeTypeCard(
+                                type = ChallengeType.DISTANCE,
+                                modifier = Modifier.weight(1f),
+                                onClick = { step = PickerStep.CuratedList(ChallengeType.DISTANCE) }
+                            )
+                            ChallengeTypeCard(
+                                type = ChallengeType.STREAK,
+                                modifier = Modifier.weight(1f),
+                                onClick = { step = PickerStep.CuratedList(ChallengeType.STREAK) }
+                            )
+                        }
                     }
                 }
 
