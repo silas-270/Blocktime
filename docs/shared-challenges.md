@@ -449,8 +449,8 @@ default that was chosen for the design rather than decided by the product.
 | J3 | Unknown code | "No challenge with that code". Every refusal stays on the preview with its reason. |
 | J4 | Room open, a slot free, not a member | LOOK UP shows a preview (name, type, target, crew, warnings). JOIN checks locally what the server would refuse anyway, builds the row template from the definition, uploads the first snapshot (the join), then under the lock re-checks the cap and inserts. The code is normalised (trimmed, upper case) first. The result is published as the existing `Started`, so the picker closes, a route is focused and the Hub opens exactly as after starting a challenge. |
 | J5 | The cap is full after the server accepted | The room is left at once (queued if the leave fails); the existing "CHALLENGE SLOTS FULL" modal. A cap already full is refused before anything is sent. |
-| J6a | A local active row has this code | Opens that slot's modal. No network call. |
-| J6b | A local completed row has this code | "You already finished this challenge". No insert, no network call. |
+| J6a | A local active row has this code | LOOK UP answers from the local row (`findByRoomCode`, the code normalised as for a join) before asking the server: it publishes `AlreadyJoined(id)`, the picker closes, the look-up is cleared and that slot's info modal opens. No network call. A JOIN that finds the row under the lock is published the same way. |
+| J6b | A local completed row has this code | LOOK UP answers from the local row: "You already finished this challenge" under the field, the join's `AlreadyFinished` reason. No preview, no insert, no network call. |
 | J7 | The room is completed or failed | "This challenge is already over". |
 | J8 | A race with any progress | "The race has already started". The preview already warns. |
 | J9 | A pool or streak already in progress | Allowed. The streak preview warns "Joining resets the group streak", because the minimum drops to zero. |

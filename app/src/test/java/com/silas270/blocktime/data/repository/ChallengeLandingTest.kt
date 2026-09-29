@@ -67,6 +67,7 @@ class ChallengeLandingTest {
         // The sharing side is never reached by the landing pipeline.
         override suspend fun shareChallenge(id: Int): ShareResult = throw NotImplementedError("unused in this test")
         override suspend fun lookUpRoom(code: String): RoomResult<RoomState> = throw NotImplementedError("unused in this test")
+        override suspend fun findByRoomCode(code: String): Challenge? = throw NotImplementedError("unused in this test")
         override suspend fun joinRoom(code: String): JoinResult = throw NotImplementedError("unused in this test")
         override suspend fun listSyncableChallenges(): List<Challenge> = emptyList()
         override suspend fun applyRoomState(id: Int, room: RoomState): MergeResult? = null

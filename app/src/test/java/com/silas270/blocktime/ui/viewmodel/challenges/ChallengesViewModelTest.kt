@@ -65,6 +65,10 @@ class ChallengesViewModelTest {
         val dismissed = mutableListOf<Int>()
         var onMarkCelebrated: () -> Unit = {}
         var joinAnswer: JoinResult = JoinResult.NotFound
+        /** The pilot's own rows by room code, for [findByRoomCode]. */
+        val ownRooms = mutableMapOf<String, Challenge>()
+        /** How often the server look-up ran; the real repository calls RoomApi there. */
+        var lookUps = 0
 
         override suspend fun listActiveChallenges(): List<Challenge> = slots.value.filter { it.status == ChallengeStatus.ACTIVE }
         override fun listActiveChallengesFlow(): Flow<List<Challenge>> = slots
@@ -85,7 +89,11 @@ class ChallengesViewModelTest {
         override fun pausedFlightStore(challengeId: Int): PausedFlightStore = throw NotImplementedError()
         override suspend fun creditEligibleFlight(destIata: String, distanceKm: Double, completedAt: Long) = Unit
         override suspend fun shareChallenge(id: Int): ShareResult = ShareResult.Unavailable(RoomResult.Unreachable)
-        override suspend fun lookUpRoom(code: String): RoomResult<RoomState> = RoomResult.NotFound
+        override suspend fun lookUpRoom(code: String): RoomResult<RoomState> {
+            lookUps++
+            return RoomResult.NotFound
+        }
+        override suspend fun findByRoomCode(code: String): Challenge? = ownRooms[code.trim().uppercase()]
         override suspend fun joinRoom(code: String): JoinResult = joinAnswer
         override suspend fun listSyncableChallenges(): List<Challenge> = emptyList()
         override suspend fun applyRoomState(id: Int, room: RoomState): MergeResult? = null
@@ -258,6 +266,39 @@ class ChallengesViewModelTest {
         vm.lookUpRoom("NOPE00")
         assertEquals(RoomLookupState.Error(JoinResult.NotFound), vm.roomLookup.value)
         assertTrue(vm.startResult.value == null)
+    }
+
+    @Test
+    fun `J6a looking up an own active room opens its slot without asking the server`() = runTest(UnconfinedTestDispatcher()) {
+        repository.ownRooms["ROOM42"] = row(7, ChallengeStatus.ACTIVE).copy(roomCode = "ROOM42")
+        val vm = viewModel()
+
+        vm.lookUpRoom("room42")
+
+        assertEquals(RoomLookupState.AlreadyJoined(7), vm.roomLookup.value)
+        assertEquals(0, repository.lookUps)
+    }
+
+    @Test
+    fun `J6a a join that finds an own active row opens its slot`() = runTest(UnconfinedTestDispatcher()) {
+        repository.joinAnswer = JoinResult.AlreadyJoined(7)
+        val vm = viewModel()
+
+        vm.joinRoom("ROOM42")
+
+        assertEquals(RoomLookupState.AlreadyJoined(7), vm.roomLookup.value)
+        assertTrue(vm.startResult.value == null)
+    }
+
+    @Test
+    fun `J6b looking up an own completed room is refused without asking the server`() = runTest(UnconfinedTestDispatcher()) {
+        repository.ownRooms["ROOM42"] = row(7, ChallengeStatus.COMPLETED).copy(roomCode = "ROOM42")
+        val vm = viewModel()
+
+        vm.lookUpRoom("ROOM42")
+
+        assertEquals(RoomLookupState.Error(JoinResult.AlreadyFinished), vm.roomLookup.value)
+        assertEquals(0, repository.lookUps)
     }
 
     @Test

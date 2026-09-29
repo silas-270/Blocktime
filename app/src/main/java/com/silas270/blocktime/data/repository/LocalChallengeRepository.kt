@@ -587,6 +587,9 @@ class LocalChallengeRepository(
         return result
     }
 
+    override suspend fun findByRoomCode(code: String): Challenge? =
+        challengeDao.getByRoomCode(userProfileDao.requireProfileId(), normaliseRoomCode(code))
+
     override suspend fun joinRoom(code: String): JoinResult {
         val roomCode = normaliseRoomCode(code)
         val profile = userProfileDao.requireProfile()

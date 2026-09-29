@@ -417,6 +417,14 @@ class LocalChallengeRepositorySharedTest {
     }
 
     @Test
+    fun `J6a findByRoomCode normalises case and surrounding spaces and asks no server`() = runTest {
+        val row = distanceRow(roomCode = ROOM)
+        assertEquals(row.id, repository.findByRoomCode("  room42 ")?.id)
+        assertNull(repository.findByRoomCode("ROOM43"))
+        assertEquals(emptyList<String>(), roomApi.calls)
+    }
+
+    @Test
     fun `J7 a room with an outcome is closed`() = runTest {
         fake.seedRoom(openRoom(ROOM, ChallengeType.DISTANCE).copy(outcome = SharedOutcome.Completed(ANNA, at = DAY_1)))
         assertEquals(JoinResult.RoomClosed, repository.joinRoom(ROOM))

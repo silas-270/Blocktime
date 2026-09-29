@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.silas270.blocktime.data.model.AchievementStatus
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.data.model.Challenge
+import com.silas270.blocktime.data.model.ChallengeStatus
 import com.silas270.blocktime.data.model.ChallengeType
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.model.RoomState
@@ -45,8 +46,12 @@ sealed interface RoomLookupState {
     /** The preview: name, type, target, crew and warnings come from the room itself. */
     data class Found(val room: RoomState) : RoomLookupState
 
-    /** Why the code cannot be joined, in the join's own vocabulary (J3, J7, J8, J10, J11, J12). */
+    /** Why the code cannot be joined, in the join's own vocabulary (J3, J6b, J7, J8, J10, J11, J12). */
     data class Error(val reason: JoinResult) : RoomLookupState
+
+    /** The pilot already runs this room in slot [challengeId]: the screen closes the picker and
+     *  opens that slot's info modal instead of a preview (J6a). */
+    data class AlreadyJoined(val challengeId: Int) : RoomLookupState
 }
 
 /** The info modal's "SHARE CHALLENGE" flow (docs/shared-challenges.md "Sharing"). */
@@ -312,13 +317,23 @@ class ChallengesViewModel(
     private val _shareState = MutableStateFlow<ShareUiState>(ShareUiState.Idle)
     val shareState: StateFlow<ShareUiState> = _shareState.asStateFlow()
 
-    /** The picker's LOOK UP: fetches the room for the preview (J3, J4, J11). */
+    /**
+     * The picker's LOOK UP: fetches the room for the preview (J3, J4, J11). A code the pilot
+     * already has a row for is answered locally first, as [joinRoom] answers it, because the
+     * server has nothing to add: an active row opens its slot (J6a), a finished one is final
+     * (J6b).
+     */
     fun lookUpRoom(code: String) {
         _roomLookup.value = RoomLookupState.Loading
         viewModelScope.launch {
-            _roomLookup.value = when (val result = challengeRepository.lookUpRoom(code)) {
-                is RoomResult.Ok -> RoomLookupState.Found(result.value)
-                else -> RoomLookupState.Error(result.asJoinFailure())
+            val own = challengeRepository.findByRoomCode(code)
+            _roomLookup.value = when {
+                own != null && own.status == ChallengeStatus.ACTIVE -> RoomLookupState.AlreadyJoined(own.id)
+                own != null -> RoomLookupState.Error(JoinResult.AlreadyFinished)
+                else -> when (val result = challengeRepository.lookUpRoom(code)) {
+                    is RoomResult.Ok -> RoomLookupState.Found(result.value)
+                    else -> RoomLookupState.Error(result.asJoinFailure())
+                }
             }
         }
     }
@@ -327,7 +342,8 @@ class ChallengesViewModel(
      * The preview's JOIN. A join is published as the existing [StartChallengeResult.Started], so
      * the screen closes the picker, focuses a route and returns to the Hub exactly as after
      * starting a challenge (J4); a full cap reuses the existing "CHALLENGE SLOTS FULL" modal
-     * (J5). Everything else stays on the preview with its reason.
+     * (J5); a row the pilot already runs opens its slot, as the look-up does (J6a). Everything
+     * else stays on the preview with its reason.
      */
     fun joinRoom(code: String) {
         _roomLookup.value = RoomLookupState.Loading
@@ -343,6 +359,8 @@ class ChallengesViewModel(
                     _roomLookup.value = RoomLookupState.Idle
                     _startResult.value = StartChallengeResult.CapReached
                 }
+                // A row for this code appeared since the look-up: open it, as the look-up would (J6a).
+                is JoinResult.AlreadyJoined -> _roomLookup.value = RoomLookupState.AlreadyJoined(result.activeId)
                 else -> _roomLookup.value = RoomLookupState.Error(result)
             }
         }

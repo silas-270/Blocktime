@@ -242,6 +242,13 @@ interface ChallengeRepository {
     suspend fun lookUpRoom(code: String): RoomResult<RoomState>
 
     /**
+     * The pilot's own row linked to room [code], or null. Local only, so the picker can answer a
+     * code the pilot already has without asking the server (J6a, J6b). The code is normalised as
+     * [joinRoom] normalises it.
+     */
+    suspend fun findByRoomCode(code: String): Challenge?
+
+    /**
      * Joins the room behind [code]: the pilot's first snapshot is the join on the server, then a
      * row is built from the room's definition under the lock, after the cap is checked again
      * (J4, J5). A code the pilot already has a row for is refused without a network call (J6a,

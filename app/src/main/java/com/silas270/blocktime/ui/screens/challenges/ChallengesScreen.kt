@@ -83,6 +83,7 @@ import com.silas270.blocktime.ui.theme.Midnight
 import com.silas270.blocktime.ui.theme.OffWhite
 import com.silas270.blocktime.ui.theme.Spacing
 import com.silas270.blocktime.ui.viewmodel.challenges.ChallengesViewModel
+import com.silas270.blocktime.ui.viewmodel.challenges.RoomLookupState
 
 private enum class ChallengesTab { CHALLENGES, ACHIEVEMENTS }
 
@@ -118,6 +119,7 @@ fun ChallengesScreen(
     val serverState by viewModel.serverState.collectAsState()
     val shareState by viewModel.shareState.collectAsState()
     val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
+    val roomLookup by viewModel.roomLookup.collectAsState()
     val context = LocalContext.current
 
     var tab by rememberSaveable { mutableStateOf(ChallengesTab.CHALLENGES) }
@@ -178,6 +180,18 @@ fun ChallengesScreen(
             if (result.challenge.type == ChallengeType.ROUTE) {
                 onChallengeStarted()
             }
+        }
+    }
+
+    // Looking up a room the pilot already runs opens that slot instead of a preview (J6a): the
+    // picker closes, the look-up is cleared so a later picker does not open on it, and the slot's
+    // info modal takes over.
+    LaunchedEffect(roomLookup) {
+        val lookup = roomLookup
+        if (lookup is RoomLookupState.AlreadyJoined) {
+            showPicker = false
+            viewModel.clearRoomLookup()
+            infoChallengeId = lookup.challengeId
         }
     }
 
