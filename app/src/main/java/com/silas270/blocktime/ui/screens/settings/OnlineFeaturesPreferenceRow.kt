@@ -18,16 +18,13 @@ internal fun OnlineFeaturesPreferenceRow(
     serverState: ServerState,
     onToggle: (Boolean) -> Unit
 ) {
+    val serverAvailable = serverState != ServerState.UNREACHABLE && serverState != ServerState.DEVICE_OFFLINE
     PreferenceToggleRow(
         icon = Icons.Outlined.Groups,
         title = "Shared challenges",
-        subtitle = when {
-            !enabled -> "Off · everything stays on this phone"
-            serverState == ServerState.DEVICE_OFFLINE -> "On · no connection"
-            serverState == ServerState.UNREACHABLE -> "On · server not reachable"
-            else -> "On · your pilot name and progress are shared with your crew"
-        },
-        checked = enabled,
+        subtitle = "Fly challenges with your crew",
+        checked = enabled && serverAvailable,
+        enabled = serverAvailable,
         onToggle = onToggle
     )
 }

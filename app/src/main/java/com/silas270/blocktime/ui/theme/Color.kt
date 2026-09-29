@@ -196,12 +196,12 @@ val ChallengeGold               = Color(0xFFFFD700)
  * type"), and a crew member in the accent colour would read as self.
  */
 val ParticipantPalette: List<Color> = listOf(
-    Color(0xFF4FB3E8),   // Sky blue
+    Color(0xFF2F80ED),   // Blue
     Color(0xFF3ECF8E),   // Mint green
     Color(0xFFE879B2),   // Rose pink
     Color(0xFFB08CFF),   // Lavender
-    Color(0xFFFF8A5B),   // Coral
-    Color(0xFF7FDBDB),   // Aqua
+    Color(0xFF6C5CE7),   // Indigo
+    Color(0xFFB5D93B),   // Lime
 )
 
 /** The colour a crew member is drawn in: self is always [Amber], everyone else takes their

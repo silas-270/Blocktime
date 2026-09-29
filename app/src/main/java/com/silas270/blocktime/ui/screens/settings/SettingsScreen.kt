@@ -35,12 +35,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
 import com.silas270.blocktime.data.model.Airport
 import com.silas270.blocktime.data.model.ThemeMode
 import com.silas270.blocktime.data.network.ServerState
 import com.silas270.blocktime.ui.components.BackTopAppBar
+import com.silas270.blocktime.ui.components.ModalButtonRow
+import com.silas270.blocktime.ui.components.ModalTitle
+import com.silas270.blocktime.ui.components.ScrimCardModal
 import com.silas270.blocktime.ui.components.SectionHeader
-import com.silas270.blocktime.ui.screens.challenges.InfoModal
 import com.silas270.blocktime.ui.theme.Haze
 import com.silas270.blocktime.ui.theme.Midnight
 import com.silas270.blocktime.ui.theme.Spacing
@@ -80,9 +83,7 @@ fun SettingsScreen(
     var showChangeHomeBase by remember { mutableStateOf(false) }
     var showWelcomeHome by remember { mutableStateOf(false) }
     var showCredits by remember { mutableStateOf(false) }
-    // Shown once per visit when the switch goes from off to on (Y5): what leaves the phone is
-    // said at the moment the pilot asks for it, not buried in a settings subtitle.
-    var showSharedChallengesInfo by remember { mutableStateOf(false) }
+    var showDisableSharedChallengesConfirm by remember { mutableStateOf(false) }
     var homeBaseSetAirport by remember { mutableStateOf<Airport?>(null) }
     val homeBaseSearchQuery by viewModel.homeBaseSearchQuery.collectAsState()
     val homeBaseSearchResults by viewModel.homeBaseSearchResults.collectAsState()
@@ -154,8 +155,11 @@ fun SettingsScreen(
                             enabled = onlineFeaturesEnabled,
                             serverState = serverState,
                             onToggle = { checked ->
-                                if (checked && !onlineFeaturesEnabled) showSharedChallengesInfo = true
-                                viewModel.setOnlineFeaturesEnabled(checked)
+                                if (checked) {
+                                    viewModel.setOnlineFeaturesEnabled(true)
+                                } else {
+                                    showDisableSharedChallengesConfirm = true
+                                }
                             }
                         )
                     }
@@ -188,13 +192,13 @@ fun SettingsScreen(
             }
         }
 
-        if (showSharedChallengesInfo) {
-            InfoModal(
-                title = "SHARED CHALLENGES",
-                message = "With this on, the pilots in a room you share or join see your pilot name, " +
-                    "your pilot code and your progress on that challenge. Nothing else leaves your " +
-                    "phone: not your logbook, not your flight times. Turn it off any time.",
-                onDismiss = { showSharedChallengesInfo = false }
+        if (showDisableSharedChallengesConfirm) {
+            DeactivateSharedChallengesModal(
+                onConfirm = {
+                    showDisableSharedChallengesConfirm = false
+                    viewModel.setOnlineFeaturesEnabled(false)
+                },
+                onDismiss = { showDisableSharedChallengesConfirm = false }
             )
         }
 
@@ -293,4 +297,28 @@ private fun locationLine(city: String?, isoCountry: String?): String {
     return listOfNotNull(city?.takeIf { it.isNotBlank() }, country)
         .joinToString(" · ")
         .uppercase(Locale.US)
+}
+
+@Composable
+private fun DeactivateSharedChallengesModal(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ScrimCardModal(onScrimTap = onDismiss) {
+        ModalTitle("TURN OFF SHARED CHALLENGES?")
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Your crew keeps what you already shared for up to 30 days. Nothing new is sent, and your progress stays on this phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Haze
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        ModalButtonRow(
+            dismissText = "CANCEL",
+            confirmText = "TURN OFF",
+            onDismiss = onDismiss,
+            onConfirm = onConfirm,
+            isDestructive = true
+        )
+    }
 }

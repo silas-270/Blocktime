@@ -21,16 +21,23 @@ internal fun PreferenceToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onToggle: (Boolean) -> Unit
 ) {
     SettingsRow(
         icon = icon,
         title = title,
         subtitle = subtitle,
-        interaction = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onToggle)
+        enabled = enabled,
+        interaction = if (enabled) {
+            Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onToggle)
+        } else {
+            Modifier
+        }
     ) {
         Switch(
-            checked = checked,
+            checked = checked && enabled,
+            enabled = enabled,
             onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Amber,
