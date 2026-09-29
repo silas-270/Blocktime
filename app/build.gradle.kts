@@ -8,9 +8,10 @@ plugins {
 }
 
 // Untracked, gitignored dev-machine config (SDK paths etc.) - also where the API keys live, so
-// they never end up in the repo: PEXELS_API_KEY for the arrival-screen destination photo, and
+// they never end up in the repo: PEXELS_API_KEY for the arrival-screen destination photo,
 // CARTO_API_KEY / ESRI_API_KEY for the engine's map tiles (passed to the Rust build in
-// cargoNdkBuild).
+// cargoNdkBuild), and ROOM_SERVER_URL, the base URL of the shared-challenges server (see
+// docs/shared-challenges.md); left empty, no sharing UI exists in the build.
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
@@ -42,6 +43,11 @@ android {
             "String",
             "PEXELS_API_KEY",
             "\"${localProperties.getProperty("PEXELS_API_KEY", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "ROOM_SERVER_URL",
+            "\"${localProperties.getProperty("ROOM_SERVER_URL", "")}\""
         )
     }
 

@@ -4,7 +4,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.security.SecureRandom
 
 @Entity(
     tableName = "user_profile",
@@ -19,7 +18,6 @@ data class UserProfile(
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 ) {
     companion object {
-        private const val CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         private const val CODE_LENGTH = 6
 
         private val ADJECTIVES = listOf(
@@ -35,14 +33,8 @@ data class UserProfile(
             "Piper", "Concorde"
         )
 
-        fun generateUserCode(): String {
-            val random = SecureRandom()
-            val code = StringBuilder(CODE_LENGTH)
-            repeat(CODE_LENGTH) {
-                code.append(CHARSET[random.nextInt(CHARSET.length)])
-            }
-            return code.toString()
-        }
+        /** Six characters from [ROOM_CODE_ALPHABET], the alphabet shared with room codes. */
+        fun generateUserCode(): String = generateCode(CODE_LENGTH)
 
         fun generateRandomName(): String {
             val adj = ADJECTIVES.random()

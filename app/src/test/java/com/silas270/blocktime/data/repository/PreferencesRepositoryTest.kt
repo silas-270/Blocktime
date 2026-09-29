@@ -4,6 +4,7 @@ import com.silas270.blocktime.data.model.ThemeMode
 import com.silas270.blocktime.testutil.FakeSharedPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -70,5 +71,49 @@ class PreferencesRepositoryTest {
         assertFalse(repository.isOnboardingCompleted())
         repository.setOnboardingCompleted(true)
         assertTrue(repository.isOnboardingCompleted())
+    }
+
+    @Test
+    fun `online features default to false and persist updates`() {
+        assertFalse(repository.isOnlineFeaturesEnabled())
+        repository.setOnlineFeaturesEnabled(true)
+        assertTrue(repository.isOnlineFeaturesEnabled())
+        repository.setOnlineFeaturesEnabled(false)
+        assertFalse(repository.isOnlineFeaturesEnabled())
+    }
+
+    @Test
+    fun `room secret is 32 characters from the code alphabet and created once`() {
+        assertNull(fakePrefs.getString("room_secret", null))
+
+        val secret = repository.getOrCreateRoomSecret()
+
+        assertEquals(32, secret.length)
+        assertTrue(secret.all { it in "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" })
+        assertEquals(secret, repository.getOrCreateRoomSecret())
+        assertEquals(secret, PreferencesRepository(fakePrefs).getOrCreateRoomSecret())
+    }
+
+    @Test
+    fun `pending room leaves are a set that survives adds and removes`() {
+        assertEquals(emptySet<String>(), repository.getPendingRoomLeaves())
+
+        repository.addPendingRoomLeave("ABC234")
+        repository.addPendingRoomLeave("XYZ789")
+        repository.addPendingRoomLeave("ABC234")
+        assertEquals(setOf("ABC234", "XYZ789"), repository.getPendingRoomLeaves())
+
+        repository.removePendingRoomLeave("ABC234")
+        assertEquals(setOf("XYZ789"), repository.getPendingRoomLeaves())
+        repository.removePendingRoomLeave("XYZ789")
+        assertEquals(emptySet<String>(), repository.getPendingRoomLeaves())
+        assertFalse(fakePrefs.contains("pending_room_leaves"))
+    }
+
+    @Test
+    fun `last room sync defaults to null and persists updates`() {
+        assertNull(repository.getLastRoomSyncAt())
+        repository.setLastRoomSyncAt(42L)
+        assertEquals(42L, repository.getLastRoomSyncAt())
     }
 }

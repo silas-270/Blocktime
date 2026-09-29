@@ -16,6 +16,15 @@
 -keep class com.silas270.blocktime.data.repository.PexelsPhoto { <fields>; <init>(...); }
 -keep class com.silas270.blocktime.data.repository.PexelsPhotoSrc { <fields>; <init>(...); }
 
+# Same for the shared-challenge room shapes (data/network/room/RoomDto.kt), which Gson reads from
+# the server and from the challenges.room_state cache by field name.
+-keep class com.silas270.blocktime.data.network.room.ParticipantSnapshotDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.RoomDefinitionDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.OutcomeDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.RoomStateDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.RoomStateCacheDto { <fields>; <init>(...); }
+-keep class com.silas270.blocktime.data.network.room.ClaimDto { <fields>; <init>(...); }
+
 # Debug logging stays out of release builds. Log.i/w/e are kept.
 -assumenosideeffects class android.util.Log {
     public static int v(...);

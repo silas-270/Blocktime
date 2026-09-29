@@ -42,7 +42,13 @@ internal fun resolveNetworkMode(connected: Boolean, dataSaver: Boolean): Network
  * process-wide rather than per screen, so it isn't tied to the Activity's scope.
  */
 class OfflineModeController(
-    isConnected: StateFlow<Boolean>,
+    /**
+     * The raw connectivity value, passed through untouched for [ServerReachability], which must
+     * see the device's connection and not the data saver: [mode] reports `OFFLINE_DATA_SAVER`
+     * before it looks at connectivity, and would make an offline device look like "server not
+     * reachable" (docs/shared-challenges.md "Two signals"). Screens keep reading [mode].
+     */
+    val isConnected: StateFlow<Boolean>,
     private val preferencesRepository: PreferencesRepository,
     scope: CoroutineScope,
 ) {

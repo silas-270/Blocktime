@@ -6,6 +6,7 @@ import com.silas270.blocktime.data.model.FlightMode
 import com.silas270.blocktime.data.model.FlightSortOrder
 import com.silas270.blocktime.data.model.PausedFlight
 import com.silas270.blocktime.data.model.ThemeMode
+import com.silas270.blocktime.data.model.generateCode
 
 /**
  * Primary constructor takes [SharedPreferences] directly so JVM unit tests can drive it with
@@ -35,6 +36,14 @@ class PreferencesRepository(private val prefs: SharedPreferences) {
         // independently of each other.
         private const val KEY_LAST_RETURN_HOME_AT = "last_return_home_at"
         private const val KEY_LAST_HOME_BASE_CHANGED_AT = "last_home_base_changed_at"
+
+        // Shared challenges (docs/shared-challenges.md): the opt-in, the pilot's password to their
+        // public code, the rooms left while the server was away, and the sync debounce.
+        private const val KEY_ONLINE_FEATURES_ENABLED = "online_features_enabled"
+        private const val KEY_ROOM_SECRET = "room_secret"
+        private const val KEY_PENDING_ROOM_LEAVES = "pending_room_leaves"
+        private const val KEY_LAST_ROOM_SYNC_AT = "last_room_sync_at"
+        private const val ROOM_SECRET_LENGTH = 32
     }
 
     /** Defaults to [ThemeMode.SYSTEM] - the app follows the device's light/dark setting until the
@@ -78,6 +87,66 @@ class PreferencesRepository(private val prefs: SharedPreferences) {
 
     fun setOfflineDataSaverEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_OFFLINE_DATA_SAVER, enabled).apply()
+    }
+
+    /** Defaults to false - nothing contacts the room server until the pilot turns on "Shared
+     *  challenges" in Settings. Owned by `ServerReachability`, the way the data saver above is
+     *  owned by `OfflineModeController`; read it through there, not here. */
+    fun isOnlineFeaturesEnabled(): Boolean = prefs.getBoolean(KEY_ONLINE_FEATURES_ENABLED, false)
+
+    fun setOnlineFeaturesEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ONLINE_FEATURES_ENABLED, enabled).apply()
+    }
+
+    /**
+     * The password to the pilot's public `user_code`: 32 characters from the pilot-code alphabet,
+     * generated with `SecureRandom` the first time this is called (which is the first time sharing
+     * is switched on) and never regenerated - the server binds the code to the secret on the first
+     * write it sees, so a new secret would lock the pilot out of their own rooms. Never shown.
+     */
+    fun getOrCreateRoomSecret(): String {
+        prefs.getString(KEY_ROOM_SECRET, null)?.let { return it }
+        val secret = generateCode(ROOM_SECRET_LENGTH)
+        prefs.edit().putString(KEY_ROOM_SECRET, secret).apply()
+        return secret
+    }
+
+    /**
+     * Room codes the pilot abandoned while the server could not be told (docs/shared-challenges.md
+     * A2, A3): the syncer sends the leave and removes the code once the server confirms. Stored
+     * as a comma-separated string rather than a string set, because codes never contain a comma
+     * and `SharedPreferences.getStringSet` hands back an instance that must not be modified.
+     */
+    fun getPendingRoomLeaves(): Set<String> =
+        prefs.getString(KEY_PENDING_ROOM_LEAVES, null)
+            ?.split(',')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            ?: emptySet()
+
+    fun addPendingRoomLeave(code: String) {
+        setPendingRoomLeaves(getPendingRoomLeaves() + code)
+    }
+
+    fun removePendingRoomLeave(code: String) {
+        setPendingRoomLeaves(getPendingRoomLeaves() - code)
+    }
+
+    private fun setPendingRoomLeaves(codes: Set<String>) {
+        if (codes.isEmpty()) {
+            prefs.edit().remove(KEY_PENDING_ROOM_LEAVES).apply()
+        } else {
+            prefs.edit().putString(KEY_PENDING_ROOM_LEAVES, codes.joinToString(",")).apply()
+        }
+    }
+
+    /** Epoch millis of the last completed room sync, or null if there has never been one - the
+     *  syncer's debounce for the foreground and screen-open triggers. */
+    fun getLastRoomSyncAt(): Long? =
+        if (prefs.contains(KEY_LAST_ROOM_SYNC_AT)) prefs.getLong(KEY_LAST_ROOM_SYNC_AT, 0L) else null
+
+    fun setLastRoomSyncAt(timestampMs: Long) {
+        prefs.edit().putLong(KEY_LAST_ROOM_SYNC_AT, timestampMs).apply()
     }
 
     /** The Passport logbook's sort order, so it survives the screen being reopened (its
