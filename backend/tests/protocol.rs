@@ -589,9 +589,23 @@ async fn a_room_is_swept_30_days_after_its_outcome_or_180_after_its_last_write()
     store.insert(&closed).await.unwrap();
     store.insert(&idle).await.unwrap();
 
-    assert_eq!(store.sweep(10 + RETAIN_AFTER_OUTCOME_MS - 1).await.unwrap(), 0);
-    assert_eq!(store.sweep(10 + RETAIN_AFTER_OUTCOME_MS + 1).await.unwrap(), 1);
+    assert_eq!(store.sweep(10 + RETAIN_AFTER_OUTCOME_MS - 1).await.unwrap().rooms, 0);
+    assert_eq!(store.sweep(10 + RETAIN_AFTER_OUTCOME_MS + 1).await.unwrap().rooms, 1);
     assert!(store.get("CLOSED").await.unwrap().is_none());
-    assert_eq!(store.sweep(RETAIN_AFTER_WRITE_MS + 1).await.unwrap(), 1);
+    assert_eq!(store.sweep(RETAIN_AFTER_WRITE_MS + 1).await.unwrap().rooms, 1);
     assert!(store.get("IDLE22").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_pilot_is_swept_180_days_after_their_last_write_and_can_then_bind_again() {
+    use blocktime_backend::store::RETAIN_AFTER_WRITE_MS;
+
+    let store = Store::memory();
+    store.bind_pilot(SELF, b"first", 0).await.unwrap();
+    // A later write keeps the pilot, and the first secret still stands.
+    assert_eq!(store.bind_pilot(SELF, b"other", 100).await.unwrap(), b"first");
+
+    assert_eq!(store.sweep(100 + RETAIN_AFTER_WRITE_MS - 1).await.unwrap().pilots, 0);
+    assert_eq!(store.sweep(100 + RETAIN_AFTER_WRITE_MS + 1).await.unwrap().pilots, 1);
+    assert_eq!(store.bind_pilot(SELF, b"second", RETAIN_AFTER_WRITE_MS + 200).await.unwrap(), b"second");
 }

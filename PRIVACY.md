@@ -79,9 +79,19 @@ it while it is open, so share a code only with the people you want in your crew.
 shared goal stays in the room until the room itself is deleted, so your crew's total does not
 change under them. Your own copy of the challenge stays on your phone as before.
 
+To recognise your writes, the server also keeps your pilot code together with a one-way hash of
+your secret (never the secret itself). That record is deleted 180 days after your last write.
+
+**Your IP address:** like any server on the internet, the room server sees the IP address each
+request comes from. It uses it only to limit how many wrong room codes one address can try, keeps
+it in memory for at most ten minutes for that, and never stores it. The company hosting the server
+records each request, including the IP address, in its request logs, which it keeps for a limited
+time.
+
 The server's address is set when the app is built. A build without one has no sharing controls
 at all and contacts no room server. The operator and address for the build you have installed
-are named in its release notes; the server itself stores nothing beyond the rooms described here.
+are named in its release notes; the server itself stores nothing beyond the rooms and the pilot
+records described here.
 
 ## Permissions
 

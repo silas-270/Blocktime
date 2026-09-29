@@ -7,7 +7,7 @@ use blocktime_backend::{AppState, router};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-/// How often expired rooms and spent rate-limit windows are cleared out.
+/// How often expired rooms and pilots and spent rate-limit windows are cleared out.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 
 #[tokio::main]
@@ -34,8 +34,8 @@ async fn main() -> anyhow::Result<()> {
             interval.tick().await;
             let now = (sweeper.clock)();
             match sweeper.store.sweep(now).await {
-                Ok(0) => {}
-                Ok(deleted) => tracing::info!(deleted, "swept expired rooms"),
+                Ok(swept) if swept == Default::default() => {}
+                Ok(swept) => tracing::info!(rooms = swept.rooms, pilots = swept.pilots, "swept expired data"),
                 Err(error) => tracing::error!(%error, "sweep failed"),
             }
             sweeper.limiter.prune(now);

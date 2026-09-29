@@ -133,9 +133,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Pilot {
 }
 
 /// Binds the pilot's code to their secret on the first write the server sees, and afterwards
-/// refuses any other secret for that code.
+/// refuses any other secret for that code. Every write also stamps the pilot's last write, which
+/// is what their retention counts from.
 async fn authenticate(state: &AppState, pilot: &Pilot) -> Result<(), ApiError> {
-    let stored = state.store.bind_pilot(&pilot.code, &pilot.secret_hash).await?;
+    let stored = state.store.bind_pilot(&pilot.code, &pilot.secret_hash, state.now()).await?;
     if bool::from(stored.as_slice().ct_eq(&pilot.secret_hash)) { Ok(()) } else { Err(ApiError::Unauthorized) }
 }
 

@@ -254,7 +254,9 @@ request. The repository and the syncer call `bindCallerIdentity(userCode, secret
 first call; it binds `HttpRoomApi`, sets `FakeRoomApi.callerUserCode` (the fake has no request to
 read a header from) and is a no-op for `NoRoomApi`. Both answer `Unauthorized` for a snapshot or a
 claim whose code is not the bound caller's. The server stores only the SHA-256 of the secret: the
-secret is 160 random bits, so a slow password hash would buy nothing.
+secret is 160 random bits, so a slow password hash would buy nothing. Every write stamps the
+pilot's last write, and the pilot record is deleted 180 days after it, like an idle room; a pilot
+who comes back after that simply binds again on their next write.
 
 ## The merge
 
@@ -542,7 +544,8 @@ The server is a key-value store with five routes. It knows nothing about flights
 A claim is `{kind: "completed" | "failed", at?, brokenBy?}`; an unknown kind is no claim. Headers
 on a write: `X-Pilot: <userCode>` and `Authorization: Bearer <secret>`; the path's and the
 snapshot's `userCode` must both be the caller's, or the answer is 401. At most six participants. A
-room is deleted 30 days after its outcome, or 180 days after its last write, by an hourly sweep.
+room is deleted 30 days after its outcome, or 180 days after its last write, and a pilot record 180
+days after the pilot's last write, by an hourly sweep.
 Look-ups are rate-limited against guessing: 60 misses (404s on a room path) per client address in
 ten minutes, after which every room request from that address is 429 until the window ends, hits
 included, since a hit would still tell a guesser the code exists. Bodies over 16 KB are 413; a room
