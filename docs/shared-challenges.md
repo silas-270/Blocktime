@@ -70,8 +70,8 @@ One sync (`syncNow`) runs to completion under a mutex, in five steps:
 3. Send the pending leaves (`pending_room_leaves`). A code that still has a live local row is
    dropped silently: the pilot rejoined the room (J13). A leave the server refuses is dropped too,
    because a retry would be refused the same way.
-4. For every syncable row (shared, and active or terminal-but-unpresented, and whose room is not
-   marked gone): **upload when the pilot's own data changed or the row has a claim to make,
+4. For every syncable row (shared, whose room is not marked gone, and either active,
+   terminal-but-unpresented, or a presented completion the server has not confirmed yet): **upload when the pilot's own data changed or the row has a claim to make,
    otherwise download.** Uploading returns the fresh room state, so push and pull are one round
    trip. The reply is merged under the write lock (`applyRoomState`), the generation is confirmed
    after an upload, and a claim the merge produced is sent at once and its reply merged too. A room
@@ -241,7 +241,12 @@ the room state, the pilot's code and the clock. It returns the new row, whether 
 cache changed, and an optional claim to send back. Rules, in order:
 
 1. Always refresh the cache with the new room state.
-2. The row is terminal and already presented: nothing else. Its log entry is frozen.
+2. The row is terminal and already presented: nothing else, with one exception. A completion
+   presented before the server confirmed it (the cache holds no outcome) takes the server's
+   outcome for its log: a race won offline while a crew member arrived first reads "2ND" after
+   the next sync. Only the outcome changes; status, completion time and the presented flag stay,
+   the celebration is not replayed, and a completion is never turned into a failure. Once the
+   cache holds an outcome, the row leaves the syncable list.
 3. The row is terminal but not yet presented, and the room has an outcome: **the server wins.**
    Status follows the outcome's kind, the outcome is copied with `bySelf` stamped, and
    `completedAt` becomes the outcome's time so every pilot's log orders the same event the same
@@ -422,7 +427,7 @@ default that was chosen for the design rather than decided by the product.
 | P6 | Active race with a paused leg | `Completed` (someone else won) | As P3; the paused leg is deleted in the same statement as the status, the slot loses its pause badge, the modal becomes read-only. |
 | P7 | Completed, unpresented (own landing), claim refused | Someone else's outcome, same kind | Status stays, outcome replaced (rule 3). |
 | P8 | Completed, unpresented | `Failed` | The server wins: status becomes failed, shatter instead of celebration (rule 3). |
-| P9 | Presented | anything | Cannot happen: presented rows are not synced. The log entry freezes at presentation. |
+| P9 | Completed and presented, never confirmed (offline win) | `Completed` by someone else | Status, completion time and the presented flag stay; the outcome is replaced, so the log stamp shows the server's placement ("2ND"). The celebration is not replayed. Afterwards the row is confirmed and no longer synced. A room outcome of `Failed` changes nothing. A presented completion the server already confirmed is not synced at all. |
 | P10 | Active | A participant joined or left | Cache refreshed; the crew list changes. Pool: a leaver's contributions stay. Streak and race: a leaver no longer counts, and a leaver's dead streak does not break the group. |
 | P11 | Active | Not found (deleted by the server's retention) | `roomGone` in the cache; the row keeps working locally, drops out of the syncable list, and the modal says "Room closed · continuing solo" under a code that has lost its copy and share buttons (nobody can join any more); no second share. |
 | P12 | Any | Unauthorised | As P11, plus a log line. Only possible if another pilot bound the same code first. |

@@ -31,7 +31,8 @@ data class MergeResult(val challenge: Challenge, val claim: OutcomeClaim?, val c
  * room state the server returned, the pilot's own code and the clock. The rules, in order:
  *
  * 1. The cache is always refreshed with [room].
- * 2. A terminal row that was already presented gets nothing else. Its log entry is frozen.
+ * 2. A terminal row that was already presented gets nothing else, unless its completion was
+ *    never confirmed: then the log takes the server's outcome ([withLogCorrection]).
  * 3. A terminal row not yet presented, when the room has an outcome: the server wins. The
  *    status follows the outcome's kind and the outcome is copied. This is how a refused claim
  *    resolves (someone finished first: a placement instead of a win) and how "completed locally
@@ -68,7 +69,7 @@ fun mergeRoomIntoChallenge(
 
     val (decided, claim) = when {
         // Rule 2.
-        terminal && local.celebrated -> cached to null
+        terminal && local.celebrated -> cached.withLogCorrection(local, outcome, selfCode) to null
         // Rule 3.
         terminal -> (if (outcome != null) cached.withServerOutcome(outcome, selfCode) else cached) to null
         // Rules 4 and 5. The row completes or fails unpresented so the screen presents it;
@@ -87,6 +88,29 @@ fun mergeRoomIntoChallenge(
     val changed = decided.copy(roomState = local.roomState) != local
     return MergeResult(decided, claim, changed)
 }
+
+/**
+ * Rule 2's one exception: a completion this phone presented before the server confirmed it. A
+ * race won offline is celebrated as a win, and the server may answer later that a crew member
+ * arrived first. **The log follows the server; the celebration is not replayed.** Only the
+ * outcome is replaced, so the stamp reads the real placement ("2ND"), while status, completion
+ * time and the presented flag stay as they are and the entry keeps its place in the log.
+ *
+ * "Not confirmed" is the cache holding no outcome, the same condition under which the syncer
+ * still sends this row's claim. Once a reply carries an outcome the cache holds it, the row
+ * leaves the syncable list and this never runs for it again. Only a completion can correct a
+ * completion: a presented row is never turned into a failure after the fact.
+ */
+private fun Challenge.withLogCorrection(local: Challenge, outcome: SharedOutcome?, selfCode: String): Challenge =
+    if (
+        outcome is SharedOutcome.Completed &&
+        local.status == ChallengeStatus.COMPLETED &&
+        local.roomState?.room?.outcome == null
+    ) {
+        copy(sharedOutcome = outcome.copy(bySelf = outcome.byUserCode == selfCode))
+    } else {
+        this
+    }
 
 /**
  * The row ended by [outcome] as the server holds it: status by kind, `bySelf` stamped from

@@ -757,15 +757,23 @@ class LocalChallengeRepositorySharedTest {
     }
 
     @Test
-    fun `listSyncableChallenges keeps unpresented terminal rows and drops presented ones and solo rows`() = runTest {
+    fun `listSyncableChallenges keeps unpresented and unconfirmed rows and drops confirmed presented ones and solo rows`() = runTest {
         val active = distanceRow(roomCode = ROOM)
         val unpresented = distanceRow(roomCode = "ROOM02")
         dao.update(dao.getById(unpresented.id)!!.copy(status = ChallengeStatus.COMPLETED, completedAt = DAY_1))
-        val presented = distanceRow(roomCode = "ROOM03")
-        dao.update(dao.getById(presented.id)!!.copy(status = ChallengeStatus.COMPLETED, completedAt = DAY_1, celebrated = true))
+        // Presented, but the server never confirmed it: its claim is still owed.
+        val unconfirmed = distanceRow(roomCode = "ROOM03")
+        dao.update(dao.getById(unconfirmed.id)!!.copy(status = ChallengeStatus.COMPLETED, completedAt = DAY_1, celebrated = true))
+        // Presented and confirmed: the cache holds the server's outcome, nothing is left to say.
+        val confirmed = distanceRow(roomCode = "ROOM04")
+        val confirmedRow = dao.getById(confirmed.id)!!
+        val confirmedCache = confirmedRow.roomState!!.let {
+            it.copy(room = it.room.copy(outcome = SharedOutcome.Completed(byUserCode = ANNA, at = DAY_1)))
+        }
+        dao.update(confirmedRow.copy(status = ChallengeStatus.COMPLETED, completedAt = DAY_1, celebrated = true, roomState = confirmedCache))
         distanceRow()
 
-        assertEquals(listOf(active.id, unpresented.id), repository.listSyncableChallenges().map { it.id })
+        assertEquals(listOf(active.id, unpresented.id, unconfirmed.id), repository.listSyncableChallenges().map { it.id })
     }
 
     @Test

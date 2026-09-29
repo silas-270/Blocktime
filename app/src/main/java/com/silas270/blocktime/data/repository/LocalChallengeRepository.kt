@@ -658,6 +658,10 @@ class LocalChallengeRepository(
     override suspend fun listSyncableChallenges(): List<Challenge> =
         challengeDao.getSyncable(userProfileDao.requireProfileId())
             .filter { it.roomState?.room?.roomGone != true }
+            // A presented completion stays only while the server has not confirmed it: its claim
+            // is still owed, and the reply may correct the log (merge rule 2). Whether the cache
+            // holds an outcome lives inside the JSON column, so this half of the rule is here.
+            .filter { it.status == ChallengeStatus.ACTIVE || !it.celebrated || it.roomState?.room?.outcome == null }
 
     override suspend fun applyRoomState(id: Int, room: RoomState): MergeResult? = writeMutex.withLock {
         val fresh = challengeDao.getById(id) ?: return null

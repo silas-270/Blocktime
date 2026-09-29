@@ -176,7 +176,7 @@ class FakeChallengeDao : ChallengeDao {
 
     override suspend fun getSyncable(userId: Int): List<Challenge> =
         rows.values
-            .filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || !it.celebrated) }
+            .filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || it.status == ChallengeStatus.COMPLETED || !it.celebrated) }
             .sortedBy { it.id }
 
     override suspend fun getByRoomCode(userId: Int, roomCode: String): Challenge? =

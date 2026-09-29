@@ -173,7 +173,7 @@ class ChallengeRowConcurrentWriteTest {
         }
 
         override suspend fun getSyncable(userId: Int): List<Challenge> =
-            rows.values.filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || !it.celebrated) }
+            rows.values.filter { it.userId == userId && it.roomCode != null && (it.status == ChallengeStatus.ACTIVE || it.status == ChallengeStatus.COMPLETED || !it.celebrated) }
 
         override suspend fun getByRoomCode(userId: Int, roomCode: String): Challenge? =
             rows.values.firstOrNull { it.userId == userId && it.roomCode == roomCode }

@@ -14,6 +14,7 @@ import com.silas270.blocktime.data.model.RoomState
 import com.silas270.blocktime.data.model.RoomStateCache
 import com.silas270.blocktime.data.model.SetMemberKind
 import com.silas270.blocktime.data.model.SharedOutcome
+import com.silas270.blocktime.data.model.racePlacement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -224,10 +225,89 @@ class SharedChallengeMergeTest {
 
     // ── Rule 2 ────────────────────────────────────────────────────────────────────────────
 
+    /** A race this phone completed on arrival while offline and has already celebrated: no
+     *  outcome of its own (L6) and a cache that has never seen the server's answer. */
+    private fun presentedOfflineWin() = route(
+        1f,
+        status = ChallengeStatus.COMPLETED,
+        cache = RoomStateCache(SELF, room(ChallengeType.ROUTE, snapshot(SELF, 0, routeProgress = 0.6f), snapshot(ANNA, 1, routeProgress = 0.5f))),
+    ).copy(celebrated = true)
+
+    @Test
+    fun `a race won offline and already presented takes the server's placement in the log`() {
+        val local = presentedOfflineWin()
+        val annaWon = SharedOutcome.Completed(byUserCode = ANNA, at = noonOf(-2), placements = listOf(ANNA, SELF))
+        val room = room(
+            ChallengeType.ROUTE,
+            snapshot(SELF, 0, routeProgress = 1f),
+            snapshot(ANNA, 1, routeProgress = 1f),
+            outcome = annaWon,
+        )
+
+        val result = merge(local, room)
+
+        assertEquals(annaWon.copy(bySelf = false), result.challenge.sharedOutcome)
+        assertEquals(ChallengeStatus.COMPLETED, result.challenge.status)
+        assertTrue(result.challenge.celebrated)
+        assertEquals(local.completedAt, result.challenge.completedAt)
+        assertEquals(2, result.challenge.racePlacement())
+        assertTrue(result.changed)
+        assertNull(result.claim)
+    }
+
+    @Test
+    fun `a presented offline win the server confirms is stamped as this pilot's`() {
+        val local = presentedOfflineWin()
+        val selfWon = SharedOutcome.Completed(byUserCode = SELF, at = noonOf(-1), placements = listOf(SELF, ANNA))
+        val room = room(ChallengeType.ROUTE, snapshot(SELF, 0, routeProgress = 1f), snapshot(ANNA, 1, routeProgress = 0.7f), outcome = selfWon)
+
+        val result = merge(local, room)
+
+        assertEquals(selfWon.copy(bySelf = true), result.challenge.sharedOutcome)
+        assertEquals(1, result.challenge.racePlacement())
+        assertTrue(result.changed)
+    }
+
+    @Test
+    fun `a presented completion is never turned into a failure afterwards`() {
+        val local = presentedOfflineWin()
+        val room = room(
+            ChallengeType.ROUTE,
+            snapshot(SELF, 0, routeProgress = 1f),
+            outcome = SharedOutcome.Failed(brokenByUserCode = ANNA, at = noonOf(-1)),
+        )
+
+        val result = merge(local, room)
+
+        assertNull(result.challenge.sharedOutcome)
+        assertEquals(ChallengeStatus.COMPLETED, result.challenge.status)
+        assertFalse(result.changed)
+    }
+
+    @Test
+    fun `a presented open room without an outcome yet changes nothing but the cache`() {
+        val local = presentedOfflineWin()
+        val room = room(ChallengeType.ROUTE, snapshot(SELF, 0, routeProgress = 1f), snapshot(ANNA, 1, routeProgress = 0.8f))
+
+        val result = merge(local, room)
+
+        assertNull(result.challenge.sharedOutcome)
+        assertFalse(result.changed)
+    }
+
     @Test
     fun `a presented terminal row only refreshes its cache`() {
         val own = SharedOutcome.Completed(byUserCode = SELF, bySelf = true, at = noonOf(-1))
-        val local = distance(1000.0, status = ChallengeStatus.COMPLETED, celebrated = true, outcome = own)
+        // Confirmed: the cache already holds the server's outcome, so nothing is left to correct.
+        val confirmed = room(
+            ChallengeType.DISTANCE,
+            snapshot(SELF, 0, distanceKm = 1000.0),
+            outcome = SharedOutcome.Completed(byUserCode = SELF, at = noonOf(-1)),
+        )
+        val local = distance(
+            1000.0, status = ChallengeStatus.COMPLETED, celebrated = true, outcome = own,
+            cache = RoomStateCache(SELF, confirmed),
+        )
         val room = room(
             ChallengeType.DISTANCE,
             snapshot(SELF, 0, distanceKm = 1000.0),

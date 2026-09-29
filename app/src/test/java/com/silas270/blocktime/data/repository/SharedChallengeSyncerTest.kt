@@ -324,6 +324,33 @@ class SharedChallengeSyncerTest {
         assertEquals(ChallengeStatus.COMPLETED, dao.getById(row.id)!!.status)
     }
 
+    @Test
+    fun `a completion presented offline is corrected in the log by the server's outcome and then left alone`() = runTest(UnconfinedTestDispatcher()) {
+        // Completed and celebrated while offline, before any reply: the cache holds no outcome,
+        // so the claim is still owed. Anna's completion reached the server first.
+        val row = sharedRow(
+            km = 1000.0, syncGeneration = 1L, status = ChallengeStatus.COMPLETED,
+            sharedOutcome = SharedOutcome.Completed(SELF, bySelf = true, at = T0),
+            serverRoom = room(ROOM, self, anna, outcome = SharedOutcome.Completed(ANNA, at = T0 - 1))
+        )
+        dao.update(dao.getById(row.id)!!.copy(celebrated = true))
+
+        syncer().syncNow(SyncReason.LANDING)
+
+        val corrected = dao.getById(row.id)!!
+        val outcome = corrected.sharedOutcome as SharedOutcome.Completed
+        assertEquals(ANNA, outcome.byUserCode)
+        assertFalse(outcome.bySelf)
+        assertEquals(ChallengeStatus.COMPLETED, corrected.status)
+        assertTrue(corrected.celebrated)
+        assertEquals(T0, corrected.completedAt)
+
+        // Confirmed now: the row leaves the syncable list and the next sync never touches it.
+        roomApi.calls.clear()
+        syncer().syncNow(SyncReason.LANDING)
+        assertEquals(emptyList<String>(), roomApi.calls)
+    }
+
     // ── the server's failures ────────────────────────────────────────────────────────────
 
     @Test

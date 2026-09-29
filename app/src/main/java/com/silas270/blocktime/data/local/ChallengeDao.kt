@@ -252,17 +252,18 @@ interface ChallengeDao {
     suspend fun updateRoomLink(id: Int, roomCode: String?, roomState: RoomStateCache?)
 
     /**
-     * Every row the syncer has to talk to the server about: shared, and either still running
-     * or terminal but not yet presented (a presented row's log entry freezes; docs/
-     * shared-challenges.md "Sync moments"). `roomGone` is not filtered here because it lives
-     * inside the cache JSON; `listSyncableChallenges` drops those rows in Kotlin.
+     * Every row the syncer may have to talk to the server about: shared, and still running,
+     * terminal but not yet presented, or a completion (docs/shared-challenges.md "Sync
+     * moments"). A presented completion is only a candidate: it stays syncable while the server
+     * has not confirmed it, so the log can take a correction (merge rule 2). That condition, and
+     * `roomGone`, live inside the cache JSON, so `listSyncableChallenges` applies them in Kotlin.
      */
     @Query(
         """
         SELECT * FROM challenges
         WHERE user_id = :userId
         AND room_code IS NOT NULL
-        AND (status = 'ACTIVE' OR celebrated = 0)
+        AND (status IN ('ACTIVE', 'COMPLETED') OR celebrated = 0)
         ORDER BY id ASC
         """
     )
